@@ -203,6 +203,204 @@
 
         <!-- Tab: Gateway -->
         <div v-show="activeTab === 'gateway'" class="space-y-6">
+          <!-- Conversation Log Settings -->
+          <div class="card">
+            <div
+              class="border-b border-gray-100 px-6 py-4 dark:border-dark-700"
+            >
+              <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+                {{ t("admin.settings.conversationLog.title") }}
+              </h2>
+              <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                {{ t("admin.settings.conversationLog.description") }}
+              </p>
+            </div>
+            <div class="space-y-5 p-6">
+              <div
+                v-if="conversationLogLoading"
+                class="flex items-center gap-2 text-gray-500"
+              >
+                <div
+                  class="h-4 w-4 animate-spin rounded-full border-b-2 border-primary-600"
+                ></div>
+                {{ t("common.loading") }}
+              </div>
+
+              <template v-else>
+                <div class="flex items-center justify-between gap-4">
+                  <div>
+                    <label class="font-medium text-gray-900 dark:text-white">{{
+                      t("admin.settings.conversationLog.enabled")
+                    }}</label>
+                    <p class="text-sm text-gray-500 dark:text-gray-400">
+                      {{ t("admin.settings.conversationLog.enabledHint") }}
+                    </p>
+                  </div>
+                  <Toggle v-model="conversationLogForm.enabled" />
+                </div>
+
+                <div
+                  v-if="conversationLogForm.enabled"
+                  class="space-y-5 border-t border-gray-100 pt-4 dark:border-dark-700"
+                >
+                  <div class="grid gap-4 md:grid-cols-2">
+                    <div class="flex items-center justify-between gap-4">
+                      <div>
+                        <label
+                          class="text-sm font-medium text-gray-700 dark:text-gray-300"
+                        >
+                          {{ t("admin.settings.conversationLog.storeRequest") }}
+                        </label>
+                        <p class="text-xs text-gray-500 dark:text-gray-400">
+                          {{
+                            t(
+                              "admin.settings.conversationLog.storeRequestHint",
+                            )
+                          }}
+                        </p>
+                      </div>
+                      <Toggle v-model="conversationLogForm.store_request" />
+                    </div>
+
+                    <div class="flex items-center justify-between gap-4">
+                      <div>
+                        <label
+                          class="text-sm font-medium text-gray-700 dark:text-gray-300"
+                        >
+                          {{
+                            t("admin.settings.conversationLog.storeResponse")
+                          }}
+                        </label>
+                        <p class="text-xs text-gray-500 dark:text-gray-400">
+                          {{
+                            t(
+                              "admin.settings.conversationLog.storeResponseHint",
+                            )
+                          }}
+                        </p>
+                      </div>
+                      <Toggle v-model="conversationLogForm.store_response" />
+                    </div>
+                  </div>
+
+                  <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                    <div>
+                      <label class="input-label">
+                        {{ t("admin.settings.conversationLog.workerCount") }}
+                      </label>
+                      <input
+                        v-model.number="conversationLogForm.worker_count"
+                        type="number"
+                        min="1"
+                        class="input"
+                      />
+                    </div>
+                    <div>
+                      <label class="input-label">
+                        {{ t("admin.settings.conversationLog.queueSize") }}
+                      </label>
+                      <input
+                        v-model.number="conversationLogForm.queue_size"
+                        type="number"
+                        min="1"
+                        class="input"
+                      />
+                    </div>
+                    <div>
+                      <label class="input-label">
+                        {{
+                          t(
+                            "admin.settings.conversationLog.taskTimeoutSeconds",
+                          )
+                        }}
+                      </label>
+                      <input
+                        v-model.number="
+                          conversationLogForm.task_timeout_seconds
+                        "
+                        type="number"
+                        min="1"
+                        class="input"
+                      />
+                    </div>
+                    <div>
+                      <label class="input-label">
+                        {{ t("admin.settings.conversationLog.overflowPolicy") }}
+                      </label>
+                      <select
+                        v-model="conversationLogForm.overflow_policy"
+                        class="input"
+                      >
+                        <option value="sync">
+                          {{
+                            t(
+                              "admin.settings.conversationLog.overflowPolicySync",
+                            )
+                          }}
+                        </option>
+                        <option value="drop">
+                          {{
+                            t(
+                              "admin.settings.conversationLog.overflowPolicyDrop",
+                            )
+                          }}
+                        </option>
+                      </select>
+                      <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                        {{
+                          t(
+                            "admin.settings.conversationLog.overflowPolicyHint",
+                          )
+                        }}
+                      </p>
+                    </div>
+                  </div>
+
+                  <p class="rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-500 dark:bg-dark-800 dark:text-gray-400">
+                    {{ t("admin.settings.conversationLog.unlimitedBodyHint") }}
+                  </p>
+                </div>
+
+                <div
+                  class="flex justify-end border-t border-gray-100 pt-4 dark:border-dark-700"
+                >
+                  <button
+                    type="button"
+                    @click="saveConversationLogSettings"
+                    :disabled="conversationLogSaving"
+                    class="btn btn-primary btn-sm"
+                  >
+                    <svg
+                      v-if="conversationLogSaving"
+                      class="mr-1 h-4 w-4 animate-spin"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                    >
+                      <circle
+                        class="opacity-25"
+                        cx="12"
+                        cy="12"
+                        r="10"
+                        stroke="currentColor"
+                        stroke-width="4"
+                      ></circle>
+                      <path
+                        class="opacity-75"
+                        fill="currentColor"
+                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                      ></path>
+                    </svg>
+                    {{
+                      conversationLogSaving
+                        ? t("common.saving")
+                        : t("common.save")
+                    }}
+                  </button>
+                </div>
+              </template>
+            </div>
+          </div>
+
           <!-- Overload Cooldown (529) Settings -->
           <div class="card">
             <div
@@ -7231,6 +7429,7 @@ import type {
   UpdateSettingsRequest,
   DefaultSubscriptionSetting,
   DefaultPlatformQuotasMap,
+  ConversationLogSettings,
   OpenAIFastPolicyRule,
   WeChatConnectMode,
   WebSearchEmulationConfig,
@@ -7405,6 +7604,21 @@ const rateLimit429CooldownSaving = ref(false);
 const rateLimit429CooldownForm = reactive({
   enabled: true,
   cooldown_seconds: 5,
+});
+
+// Conversation Log 状态
+const conversationLogLoading = ref(true);
+const conversationLogSaving = ref(false);
+const conversationLogForm = reactive<ConversationLogSettings>({
+  enabled: false,
+  worker_count: 4,
+  queue_size: 4096,
+  task_timeout_seconds: 5,
+  overflow_policy: "sync",
+  store_request: true,
+  store_response: true,
+  max_request_bytes: 0,
+  max_response_bytes: 0,
 });
 
 // Stream Timeout 状态
@@ -9682,6 +9896,47 @@ async function saveRateLimit429CooldownSettings() {
   }
 }
 
+// Conversation Log 方法
+async function loadConversationLogSettings() {
+  conversationLogLoading.value = true;
+  try {
+    const settings = await adminAPI.settings.getConversationLogSettings();
+    Object.assign(conversationLogForm, settings);
+  } catch (_error: unknown) {
+    // Silent fail - settings will use defaults
+  } finally {
+    conversationLogLoading.value = false;
+  }
+}
+
+async function saveConversationLogSettings() {
+  conversationLogSaving.value = true;
+  try {
+    const updated = await adminAPI.settings.updateConversationLogSettings({
+      enabled: conversationLogForm.enabled,
+      worker_count: conversationLogForm.worker_count,
+      queue_size: conversationLogForm.queue_size,
+      task_timeout_seconds: conversationLogForm.task_timeout_seconds,
+      overflow_policy: conversationLogForm.overflow_policy,
+      store_request: conversationLogForm.store_request,
+      store_response: conversationLogForm.store_response,
+      max_request_bytes: 0,
+      max_response_bytes: 0,
+    });
+    Object.assign(conversationLogForm, updated);
+    appStore.showSuccess(t("admin.settings.conversationLog.saved"));
+  } catch (error: unknown) {
+    appStore.showError(
+      extractApiErrorMessage(
+        error,
+        t("admin.settings.conversationLog.saveFailed"),
+      ),
+    );
+  } finally {
+    conversationLogSaving.value = false;
+  }
+}
+
 // Stream Timeout 方法
 async function loadStreamTimeoutSettings() {
   streamTimeoutLoading.value = true;
@@ -10307,6 +10562,7 @@ onMounted(() => {
   loadAdminApiKey();
   loadOverloadCooldownSettings();
   loadRateLimit429CooldownSettings();
+  loadConversationLogSettings();
   loadStreamTimeoutSettings();
   loadRectifierSettings();
   loadBetaPolicySettings();

@@ -4513,6 +4513,106 @@ func (s *SettingService) SetRateLimit429CooldownSettings(ctx context.Context, se
 	return s.settingRepo.Set(ctx, SettingKeyRateLimit429CooldownSettings, string(data))
 }
 
+// GetConversationLogSettings 获取用户对话异步记录配置。
+func (s *SettingService) GetConversationLogSettings(ctx context.Context) (*ConversationLogSettings, error) {
+	value, err := s.settingRepo.GetValue(ctx, SettingKeyConversationLogSettings)
+	if err != nil {
+		if errors.Is(err, ErrSettingNotFound) {
+			return DefaultConversationLogSettings(), nil
+		}
+		return nil, fmt.Errorf("get conversation log settings: %w", err)
+	}
+	if value == "" {
+		return DefaultConversationLogSettings(), nil
+	}
+
+	settings := DefaultConversationLogSettings()
+	if err := json.Unmarshal([]byte(value), settings); err != nil {
+		return DefaultConversationLogSettings(), nil
+	}
+	normalizeConversationLogSettings(settings)
+	return settings, nil
+}
+
+// SetConversationLogSettings 设置用户对话异步记录配置。
+func (s *SettingService) SetConversationLogSettings(ctx context.Context, settings *ConversationLogSettings) error {
+	if settings == nil {
+		return fmt.Errorf("settings cannot be nil")
+	}
+	if err := validateConversationLogSettings(settings); err != nil {
+		return err
+	}
+	normalizeConversationLogSettings(settings)
+
+	data, err := json.Marshal(settings)
+	if err != nil {
+		return fmt.Errorf("marshal conversation log settings: %w", err)
+	}
+
+	return s.settingRepo.Set(ctx, SettingKeyConversationLogSettings, string(data))
+}
+
+func validateConversationLogSettings(settings *ConversationLogSettings) error {
+	if settings.WorkerCount <= 0 {
+		if settings.Enabled {
+			return fmt.Errorf("worker_count must be positive")
+		}
+		settings.WorkerCount = defaultConversationLogWorkerCount
+	}
+	if settings.QueueSize <= 0 {
+		if settings.Enabled {
+			return fmt.Errorf("queue_size must be positive")
+		}
+		settings.QueueSize = defaultConversationLogQueueSize
+	}
+	if settings.TaskTimeoutSeconds <= 0 {
+		if settings.Enabled {
+			return fmt.Errorf("task_timeout_seconds must be positive")
+		}
+		settings.TaskTimeoutSeconds = defaultConversationLogTaskTimeoutSeconds
+	}
+	switch strings.ToLower(strings.TrimSpace(settings.OverflowPolicy)) {
+	case config.UsageRecordOverflowPolicySync, config.UsageRecordOverflowPolicyDrop:
+		// valid
+	default:
+		if settings.Enabled {
+			return fmt.Errorf("overflow_policy must be one of: %s/%s", config.UsageRecordOverflowPolicySync, config.UsageRecordOverflowPolicyDrop)
+		}
+		settings.OverflowPolicy = defaultConversationLogOverflowPolicy
+	}
+	if settings.MaxRequestBytes < 0 {
+		if settings.Enabled {
+			return fmt.Errorf("max_request_bytes must be non-negative")
+		}
+	}
+	settings.MaxRequestBytes = defaultConversationLogMaxRequestBytes
+	if settings.MaxResponseBytes < 0 {
+		if settings.Enabled {
+			return fmt.Errorf("max_response_bytes must be non-negative")
+		}
+	}
+	settings.MaxResponseBytes = defaultConversationLogMaxResponseBytes
+	return nil
+}
+
+func normalizeConversationLogSettings(settings *ConversationLogSettings) {
+	if settings == nil {
+		return
+	}
+	if settings.WorkerCount <= 0 {
+		settings.WorkerCount = defaultConversationLogWorkerCount
+	}
+	if settings.QueueSize <= 0 {
+		settings.QueueSize = defaultConversationLogQueueSize
+	}
+	if settings.TaskTimeoutSeconds <= 0 {
+		settings.TaskTimeoutSeconds = defaultConversationLogTaskTimeoutSeconds
+	}
+	settings.OverflowPolicy = normalizeConversationLogOverflowPolicy(settings.OverflowPolicy)
+	settings.MaxRequestBytes = defaultConversationLogMaxRequestBytes
+	settings.MaxResponseBytes = defaultConversationLogMaxResponseBytes
+}
+
 // GetOIDCConnectOAuthConfig 返回用于登录的“最终生效” OIDC 配置。
 //
 // 优先级：

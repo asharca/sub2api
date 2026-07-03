@@ -1,0 +1,98 @@
+version: 2
+
+project_name: sub2api
+
+before:
+  hooks:
+    - go mod tidy -C backend
+
+builds:
+  - id: sub2api
+    dir: backend
+    main: ./cmd/server
+    binary: sub2api
+    flags:
+      - -tags=embed
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - windows
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      - goos: windows
+        goarch: arm64
+    ldflags:
+      - -s -w
+      - -X main.Version={{.Version}}
+      - -X main.Commit={{.Commit}}
+      - -X main.Date={{.Date}}
+      - -X main.BuildType=release
+
+archives:
+  - id: default
+    format: tar.gz
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    format_overrides:
+      - goos: windows
+        format: zip
+    files:
+      - LICENSE*
+      - README*
+      - deploy/*
+
+checksum:
+  name_template: 'checksums.txt'
+  algorithm: sha256
+
+changelog:
+  disable: true
+
+dockers:
+  - id: ghcr-amd64
+    goos: linux
+    goarch: amd64
+    image_templates:
+      - "ghcr.io/{{ .Env.GITHUB_REPO_OWNER_LOWER }}/sub2api:{{ .Version }}-amd64"
+      - "ghcr.io/{{ .Env.GITHUB_REPO_OWNER_LOWER }}/sub2api:{{ .Version }}"
+    dockerfile: Dockerfile.goreleaser
+    use: buildx
+    extra_files:
+      - deploy/docker-entrypoint.sh
+    build_flag_templates:
+      - "--platform=linux/amd64"
+      - "--label=org.opencontainers.image.version={{ .Version }}"
+      - "--label=org.opencontainers.image.revision={{ .Commit }}"
+      - "--label=org.opencontainers.image.source=https://github.com/{{ .Env.GITHUB_REPO_OWNER }}/{{ .Env.GITHUB_REPO_NAME }}"
+
+docker_manifests: []
+
+release:
+  github:
+    owner: "{{ .Env.GITHUB_REPO_OWNER }}"
+    name: "{{ .Env.GITHUB_REPO_NAME }}"
+  draft: false
+  prerelease: false
+  target_commitish: "{{ .Env.GITHUB_RELEASE_TARGET_COMMITISH }}"
+  name_template: "{{ .Tag }}"
+  header: |
+    > Sub2API feature release for `feat/conversation-storage`
+
+    {{ .Env.TAG_MESSAGE }}
+
+  footer: |
+
+    ---
+
+    ## Installation
+
+    Docker image:
+    ```bash
+    docker pull ghcr.io/{{ .Env.GITHUB_REPO_OWNER_LOWER }}/sub2api:{{ .Version }}
+    ```
+
+    Manual binary update assets are attached below.

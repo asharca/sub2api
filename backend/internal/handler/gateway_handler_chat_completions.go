@@ -59,6 +59,8 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 		h.chatCompletionsErrorResponse(c, http.StatusBadRequest, "invalid_request_error", "Request body is empty")
 		return
 	}
+	conversationCapture := startConversationResponseCapture(c, h.conversationLogService)
+	defer conversationCapture.Restore(c)
 
 	setOpsRequestContext(c, "", false)
 
@@ -309,6 +311,16 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 				)
 			}
 		})
+		submitAnthropicConversationLog(c.Request.Context(), h.conversationLogService, conversationLogBaseInput{
+			Body:             body,
+			Capture:          conversationCapture,
+			APIKey:           apiKey,
+			Account:          account,
+			InboundEndpoint:  inboundEndpoint,
+			UpstreamEndpoint: upstreamEndpoint,
+			StatusCode:       conversationLogStatus(c),
+			RequestHash:      requestPayloadHash,
+		}, result)
 		return
 	}
 }

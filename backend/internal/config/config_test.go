@@ -1507,6 +1507,54 @@ func TestValidateConfigErrors(t *testing.T) {
 			wantErr: "gateway.usage_record.auto_scale_check_interval_seconds",
 		},
 		{
+			name: "gateway conversation log worker count",
+			mutate: func(c *Config) {
+				c.Gateway.ConversationLog.Enabled = true
+				c.Gateway.ConversationLog.WorkerCount = 0
+			},
+			wantErr: "gateway.conversation_log.worker_count",
+		},
+		{
+			name: "gateway conversation log queue size",
+			mutate: func(c *Config) {
+				c.Gateway.ConversationLog.Enabled = true
+				c.Gateway.ConversationLog.QueueSize = 0
+			},
+			wantErr: "gateway.conversation_log.queue_size",
+		},
+		{
+			name: "gateway conversation log timeout",
+			mutate: func(c *Config) {
+				c.Gateway.ConversationLog.Enabled = true
+				c.Gateway.ConversationLog.TaskTimeoutSeconds = 0
+			},
+			wantErr: "gateway.conversation_log.task_timeout_seconds",
+		},
+		{
+			name: "gateway conversation log overflow policy",
+			mutate: func(c *Config) {
+				c.Gateway.ConversationLog.Enabled = true
+				c.Gateway.ConversationLog.OverflowPolicy = "sample"
+			},
+			wantErr: "gateway.conversation_log.overflow_policy",
+		},
+		{
+			name: "gateway conversation log max request bytes",
+			mutate: func(c *Config) {
+				c.Gateway.ConversationLog.Enabled = true
+				c.Gateway.ConversationLog.MaxRequestBytes = -1
+			},
+			wantErr: "gateway.conversation_log.max_request_bytes",
+		},
+		{
+			name: "gateway conversation log max response bytes",
+			mutate: func(c *Config) {
+				c.Gateway.ConversationLog.Enabled = true
+				c.Gateway.ConversationLog.MaxResponseBytes = -1
+			},
+			wantErr: "gateway.conversation_log.max_response_bytes",
+		},
+		{
 			name:    "gateway user group rate cache ttl",
 			mutate:  func(c *Config) { c.Gateway.UserGroupRateCacheTTLSeconds = 0 },
 			wantErr: "gateway.user_group_rate_cache_ttl_seconds",
@@ -1935,6 +1983,41 @@ func TestLoad_DefaultGatewayUsageRecordConfig(t *testing.T) {
 	}
 	if cfg.Gateway.UsageRecord.AutoScaleCooldownSeconds != 10 {
 		t.Fatalf("auto_scale_cooldown_seconds = %d, want 10", cfg.Gateway.UsageRecord.AutoScaleCooldownSeconds)
+	}
+}
+
+func TestLoad_DefaultGatewayConversationLogConfig(t *testing.T) {
+	resetViperWithJWTSecret(t)
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if cfg.Gateway.ConversationLog.Enabled {
+		t.Fatalf("conversation_log.enabled = true, want false")
+	}
+	if cfg.Gateway.ConversationLog.WorkerCount != 4 {
+		t.Fatalf("conversation_log.worker_count = %d, want 4", cfg.Gateway.ConversationLog.WorkerCount)
+	}
+	if cfg.Gateway.ConversationLog.QueueSize != 4096 {
+		t.Fatalf("conversation_log.queue_size = %d, want 4096", cfg.Gateway.ConversationLog.QueueSize)
+	}
+	if cfg.Gateway.ConversationLog.TaskTimeoutSeconds != 5 {
+		t.Fatalf("conversation_log.task_timeout_seconds = %d, want 5", cfg.Gateway.ConversationLog.TaskTimeoutSeconds)
+	}
+	if cfg.Gateway.ConversationLog.OverflowPolicy != UsageRecordOverflowPolicySync {
+		t.Fatalf("conversation_log.overflow_policy = %s, want %s", cfg.Gateway.ConversationLog.OverflowPolicy, UsageRecordOverflowPolicySync)
+	}
+	if !cfg.Gateway.ConversationLog.StoreRequest {
+		t.Fatalf("conversation_log.store_request = false, want true")
+	}
+	if !cfg.Gateway.ConversationLog.StoreResponse {
+		t.Fatalf("conversation_log.store_response = false, want true")
+	}
+	if cfg.Gateway.ConversationLog.MaxRequestBytes != 0 {
+		t.Fatalf("conversation_log.max_request_bytes = %d, want 0", cfg.Gateway.ConversationLog.MaxRequestBytes)
+	}
+	if cfg.Gateway.ConversationLog.MaxResponseBytes != 0 {
+		t.Fatalf("conversation_log.max_response_bytes = %d, want 0", cfg.Gateway.ConversationLog.MaxResponseBytes)
 	}
 }
 

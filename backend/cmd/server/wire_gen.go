@@ -212,7 +212,9 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	registry := payment.ProvideRegistry()
 	defaultLoadBalancer := payment.ProvideDefaultLoadBalancer(client, encryptionKey)
 	paymentService := service.ProvidePaymentService(client, registry, defaultLoadBalancer, redeemService, subscriptionService, paymentConfigService, userRepository, groupRepository, affiliateService, notificationEmailService)
-	settingHandler := handler.ProvideAdminSettingHandler(settingService, emailService, turnstileService, opsService, paymentConfigService, paymentService, userAttributeService, notificationEmailService)
+	conversationLogRepository := repository.NewConversationLogRepository(db)
+	conversationLogService := service.ProvideConversationLogService(conversationLogRepository, configConfig, settingService)
+	settingHandler := handler.ProvideAdminSettingHandler(settingService, emailService, turnstileService, opsService, paymentConfigService, paymentService, userAttributeService, notificationEmailService, conversationLogService)
 	opsHandler := admin.NewOpsHandler(opsService)
 	updateCache := repository.NewUpdateCache(redisClient)
 	gitHubReleaseClient := repository.ProvideGitHubReleaseClient(configConfig)
@@ -225,6 +227,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	usageCleanupRepository := repository.NewUsageCleanupRepository(client, db)
 	usageCleanupService := service.ProvideUsageCleanupService(usageCleanupRepository, timingWheelService, dashboardAggregationService, configConfig)
 	adminUsageHandler := admin.NewUsageHandler(usageService, apiKeyService, adminService, usageCleanupService)
+	conversationLogHandler := admin.NewConversationLogHandler(conversationLogService)
 	userAttributeHandler := admin.NewUserAttributeHandler(userAttributeService)
 	errorPassthroughRepository := repository.NewErrorPassthroughRepository(client)
 	errorPassthroughCache := repository.NewErrorPassthroughCache(redisClient)
@@ -248,12 +251,12 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	paymentHandler := admin.NewPaymentHandler(paymentService, paymentConfigService)
 	affiliateHandler := admin.NewAffiliateHandler(affiliateService, adminService)
 	complianceHandler := admin.NewComplianceHandler(settingService)
-	adminHandlers := handler.ProvideAdminHandlers(dashboardHandler, adminUserHandler, groupHandler, accountHandler, adminAnnouncementHandler, dataManagementHandler, backupHandler, oAuthHandler, openAIOAuthHandler, geminiOAuthHandler, antigravityOAuthHandler, grokOAuthHandler, proxyHandler, adminRedeemHandler, promoHandler, settingHandler, opsHandler, systemHandler, adminSubscriptionHandler, adminUsageHandler, userAttributeHandler, errorPassthroughHandler, tlsFingerprintProfileHandler, adminAPIKeyHandler, scheduledTestHandler, channelHandler, channelMonitorHandler, channelMonitorRequestTemplateHandler, contentModerationHandler, paymentHandler, affiliateHandler, complianceHandler)
+	adminHandlers := handler.ProvideAdminHandlers(dashboardHandler, adminUserHandler, groupHandler, accountHandler, adminAnnouncementHandler, dataManagementHandler, backupHandler, oAuthHandler, openAIOAuthHandler, geminiOAuthHandler, antigravityOAuthHandler, grokOAuthHandler, proxyHandler, adminRedeemHandler, promoHandler, settingHandler, opsHandler, systemHandler, adminSubscriptionHandler, adminUsageHandler, conversationLogHandler, userAttributeHandler, errorPassthroughHandler, tlsFingerprintProfileHandler, adminAPIKeyHandler, scheduledTestHandler, channelHandler, channelMonitorHandler, channelMonitorRequestTemplateHandler, contentModerationHandler, paymentHandler, affiliateHandler, complianceHandler)
 	usageRecordWorkerPool := service.NewUsageRecordWorkerPool(configConfig)
 	userMsgQueueCache := repository.NewUserMsgQueueCache(redisClient)
 	userMessageQueueService := service.ProvideUserMessageQueueService(userMsgQueueCache, rpmCache, configConfig)
-	gatewayHandler := handler.NewGatewayHandler(gatewayService, geminiMessagesCompatService, antigravityGatewayService, userService, concurrencyService, billingCacheService, usageService, apiKeyService, usageRecordWorkerPool, errorPassthroughService, contentModerationService, userMessageQueueService, configConfig, settingService)
-	openAIGatewayHandler := handler.NewOpenAIGatewayHandler(openAIGatewayService, concurrencyService, billingCacheService, apiKeyService, usageRecordWorkerPool, errorPassthroughService, contentModerationService, opsService, configConfig)
+	gatewayHandler := handler.NewGatewayHandler(gatewayService, geminiMessagesCompatService, antigravityGatewayService, userService, concurrencyService, billingCacheService, usageService, apiKeyService, usageRecordWorkerPool, conversationLogService, errorPassthroughService, contentModerationService, userMessageQueueService, configConfig, settingService)
+	openAIGatewayHandler := handler.NewOpenAIGatewayHandler(openAIGatewayService, concurrencyService, billingCacheService, apiKeyService, usageRecordWorkerPool, conversationLogService, errorPassthroughService, contentModerationService, opsService, configConfig)
 	handlerSettingHandler := handler.ProvideSettingHandler(settingService, buildInfo, notificationEmailService)
 	totpHandler := handler.NewTotpHandler(totpService)
 	handlerPaymentHandler := handler.NewPaymentHandler(paymentService, paymentConfigService, channelService)
@@ -280,7 +283,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	paymentOrderExpiryService := service.ProvidePaymentOrderExpiryService(paymentService, leaderLockCache, db)
 	channelMonitorRunner := service.ProvideChannelMonitorRunner(channelMonitorService, settingService)
 	userPlatformQuotaUsageFlusher := service.ProvideUserPlatformQuotaUsageFlusher(configConfig, billingCache, serviceUserPlatformQuotaRepository, timingWheelService)
-	v := provideCleanup(client, redisClient, opsMetricsCollector, opsAggregationService, opsAlertEvaluatorService, opsCleanupService, opsScheduledReportService, opsSystemLogSink, schedulerSnapshotService, tokenRefreshService, accountExpiryService, proxyExpiryService, subscriptionExpiryService, usageCleanupService, idempotencyCleanupService, pricingService, emailQueueService, billingCacheService, usageRecordWorkerPool, subscriptionService, oAuthService, openAIOAuthService, geminiOAuthService, antigravityOAuthService, grokOAuthService, openAIGatewayService, scheduledTestRunnerService, backupService, paymentOrderExpiryService, channelMonitorRunner, userPlatformQuotaUsageFlusher)
+	v := provideCleanup(client, redisClient, opsMetricsCollector, opsAggregationService, opsAlertEvaluatorService, opsCleanupService, opsScheduledReportService, opsSystemLogSink, schedulerSnapshotService, tokenRefreshService, accountExpiryService, proxyExpiryService, subscriptionExpiryService, usageCleanupService, idempotencyCleanupService, pricingService, emailQueueService, billingCacheService, usageRecordWorkerPool, conversationLogService, subscriptionService, oAuthService, openAIOAuthService, geminiOAuthService, antigravityOAuthService, grokOAuthService, openAIGatewayService, scheduledTestRunnerService, backupService, paymentOrderExpiryService, channelMonitorRunner, userPlatformQuotaUsageFlusher)
 	application := &Application{
 		Server:  httpServer,
 		Cleanup: v,
@@ -302,6 +305,7 @@ func providePrivacyClientFactory() service.PrivacyClientFactory {
 func provideServiceBuildInfo(buildInfo handler.BuildInfo) service.BuildInfo {
 	return service.BuildInfo{
 		Version:   buildInfo.Version,
+		Commit:    buildInfo.Commit,
 		BuildType: buildInfo.BuildType,
 	}
 }
@@ -326,6 +330,7 @@ func provideCleanup(
 	emailQueue *service.EmailQueueService,
 	billingCache *service.BillingCacheService,
 	usageRecordWorkerPool *service.UsageRecordWorkerPool,
+	conversationLogService *service.ConversationLogService,
 	subscriptionService *service.SubscriptionService,
 	oauth *service.OAuthService,
 	openaiOAuth *service.OpenAIOAuthService,
@@ -440,6 +445,12 @@ func provideCleanup(
 			{"UsageRecordWorkerPool", func() error {
 				if usageRecordWorkerPool != nil {
 					usageRecordWorkerPool.Stop()
+				}
+				return nil
+			}},
+			{"ConversationLogService", func() error {
+				if conversationLogService != nil {
+					conversationLogService.Stop()
 				}
 				return nil
 			}},

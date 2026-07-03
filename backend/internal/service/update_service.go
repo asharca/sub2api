@@ -26,9 +26,10 @@ var (
 )
 
 const (
-	updateCacheKey = "update_check_cache"
-	updateCacheTTL = 1200 // 20 minutes
-	githubRepo     = "Wei-Shaw/sub2api"
+	githubRepo          = "asharca/sub2api"
+	githubReleaseBranch = "feat/conversation-storage"
+	updateCacheKey      = "update_check_cache:" + githubRepo + ":" + githubReleaseBranch
+	updateCacheTTL      = 1200 // 20 minutes
 
 	// Security: allowed download domains for updates
 	allowedDownloadHost = "github.com"
@@ -46,7 +47,7 @@ type UpdateCache interface {
 
 // GitHubReleaseClient 获取 GitHub release 信息的接口
 type GitHubReleaseClient interface {
-	FetchLatestRelease(ctx context.Context, repo string) (*GitHubRelease, error)
+	FetchLatestRelease(ctx context.Context, repo, branch string) (*GitHubRelease, error)
 	DownloadFile(ctx context.Context, url, dest string, maxSize int64) error
 	FetchChecksumFile(ctx context.Context, url string) ([]byte, error)
 }
@@ -71,13 +72,15 @@ func NewUpdateService(cache UpdateCache, githubClient GitHubReleaseClient, versi
 
 // UpdateInfo contains update information
 type UpdateInfo struct {
-	CurrentVersion string       `json:"current_version"`
-	LatestVersion  string       `json:"latest_version"`
-	HasUpdate      bool         `json:"has_update"`
-	ReleaseInfo    *ReleaseInfo `json:"release_info,omitempty"`
-	Cached         bool         `json:"cached"`
-	Warning        string       `json:"warning,omitempty"`
-	BuildType      string       `json:"build_type"` // "source" or "release"
+	CurrentVersion        string       `json:"current_version"`
+	CurrentDisplayVersion string       `json:"current_display_version,omitempty"`
+	LatestVersion         string       `json:"latest_version"`
+	LatestDisplayVersion  string       `json:"latest_display_version,omitempty"`
+	HasUpdate             bool         `json:"has_update"`
+	ReleaseInfo           *ReleaseInfo `json:"release_info,omitempty"`
+	Cached                bool         `json:"cached"`
+	Warning               string       `json:"warning,omitempty"`
+	BuildType             string       `json:"build_type"` // "source" or "release"
 }
 
 // ReleaseInfo contains GitHub release details
@@ -98,12 +101,15 @@ type Asset struct {
 
 // GitHubRelease represents GitHub API response
 type GitHubRelease struct {
-	TagName     string        `json:"tag_name"`
-	Name        string        `json:"name"`
-	Body        string        `json:"body"`
-	PublishedAt string        `json:"published_at"`
-	HTMLURL     string        `json:"html_url"`
-	Assets      []GitHubAsset `json:"assets"`
+	TagName         string        `json:"tag_name"`
+	Name            string        `json:"name"`
+	Body            string        `json:"body"`
+	PublishedAt     string        `json:"published_at"`
+	HTMLURL         string        `json:"html_url"`
+	TargetCommitish string        `json:"target_commitish"`
+	Draft           bool          `json:"draft"`
+	Prerelease      bool          `json:"prerelease"`
+	Assets          []GitHubAsset `json:"assets"`
 }
 
 type GitHubAsset struct {
@@ -130,11 +136,13 @@ func (s *UpdateService) CheckUpdate(ctx context.Context, force bool) (*UpdateInf
 			return cached, nil
 		}
 		return &UpdateInfo{
-			CurrentVersion: s.currentVersion,
-			LatestVersion:  s.currentVersion,
-			HasUpdate:      false,
-			Warning:        err.Error(),
-			BuildType:      s.buildType,
+			CurrentVersion:        s.currentVersion,
+			CurrentDisplayVersion: s.currentDisplayVersion(),
+			LatestVersion:         s.currentVersion,
+			LatestDisplayVersion:  s.currentDisplayVersion(),
+			HasUpdate:             false,
+			Warning:               err.Error(),
+			BuildType:             s.buildType,
 		}, nil
 	}
 
@@ -280,7 +288,7 @@ func (s *UpdateService) Rollback() error {
 }
 
 func (s *UpdateService) fetchLatestRelease(ctx context.Context) (*UpdateInfo, error) {
-	release, err := s.githubClient.FetchLatestRelease(ctx, githubRepo)
+	release, err := s.githubClient.FetchLatestRelease(ctx, githubRepo, githubReleaseBranch)
 	if err != nil {
 		return nil, err
 	}
@@ -297,9 +305,11 @@ func (s *UpdateService) fetchLatestRelease(ctx context.Context) (*UpdateInfo, er
 	}
 
 	return &UpdateInfo{
-		CurrentVersion: s.currentVersion,
-		LatestVersion:  latestVersion,
-		HasUpdate:      compareVersions(s.currentVersion, latestVersion) < 0,
+		CurrentVersion:        s.currentVersion,
+		CurrentDisplayVersion: s.currentDisplayVersion(),
+		LatestVersion:         latestVersion,
+		LatestDisplayVersion:  latestVersion,
+		HasUpdate:             compareVersions(s.currentVersion, latestVersion) < 0,
 		ReleaseInfo: &ReleaseInfo{
 			Name:        release.Name,
 			Body:        release.Body,
@@ -480,9 +490,10 @@ func (s *UpdateService) getFromCache(ctx context.Context) (*UpdateInfo, error) {
 	}
 
 	var cached struct {
-		Latest      string       `json:"latest"`
-		ReleaseInfo *ReleaseInfo `json:"release_info"`
-		Timestamp   int64        `json:"timestamp"`
+		Latest        string       `json:"latest"`
+		LatestDisplay string       `json:"latest_display"`
+		ReleaseInfo   *ReleaseInfo `json:"release_info"`
+		Timestamp     int64        `json:"timestamp"`
 	}
 	if err := json.Unmarshal([]byte(data), &cached); err != nil {
 		return nil, err
@@ -493,54 +504,90 @@ func (s *UpdateService) getFromCache(ctx context.Context) (*UpdateInfo, error) {
 	}
 
 	return &UpdateInfo{
-		CurrentVersion: s.currentVersion,
-		LatestVersion:  cached.Latest,
-		HasUpdate:      compareVersions(s.currentVersion, cached.Latest) < 0,
-		ReleaseInfo:    cached.ReleaseInfo,
-		Cached:         true,
-		BuildType:      s.buildType,
+		CurrentVersion:        s.currentVersion,
+		CurrentDisplayVersion: s.currentDisplayVersion(),
+		LatestVersion:         cached.Latest,
+		LatestDisplayVersion:  firstNonEmpty(cached.LatestDisplay, cached.Latest),
+		HasUpdate:             compareVersions(s.currentVersion, cached.Latest) < 0,
+		ReleaseInfo:           cached.ReleaseInfo,
+		Cached:                true,
+		BuildType:             s.buildType,
 	}, nil
 }
 
 func (s *UpdateService) saveToCache(ctx context.Context, info *UpdateInfo) {
 	cacheData := struct {
-		Latest      string       `json:"latest"`
-		ReleaseInfo *ReleaseInfo `json:"release_info"`
-		Timestamp   int64        `json:"timestamp"`
+		Latest        string       `json:"latest"`
+		LatestDisplay string       `json:"latest_display"`
+		ReleaseInfo   *ReleaseInfo `json:"release_info"`
+		Timestamp     int64        `json:"timestamp"`
 	}{
-		Latest:      info.LatestVersion,
-		ReleaseInfo: info.ReleaseInfo,
-		Timestamp:   time.Now().Unix(),
+		Latest:        info.LatestVersion,
+		LatestDisplay: info.LatestDisplayVersion,
+		ReleaseInfo:   info.ReleaseInfo,
+		Timestamp:     time.Now().Unix(),
 	}
 
 	data, _ := json.Marshal(cacheData)
 	_ = s.cache.SetUpdateInfo(ctx, string(data), time.Duration(updateCacheTTL)*time.Second)
 }
 
+func (s *UpdateService) currentDisplayVersion() string {
+	return s.currentVersion
+}
+
 // compareVersions compares two semantic versions
 func compareVersions(current, latest string) int {
-	currentParts := parseVersion(current)
-	latestParts := parseVersion(latest)
+	currentVersion := parseVersion(current)
+	latestVersion := parseVersion(latest)
 
 	for i := 0; i < 3; i++ {
-		if currentParts[i] < latestParts[i] {
+		if currentVersion.parts[i] < latestVersion.parts[i] {
 			return -1
 		}
-		if currentParts[i] > latestParts[i] {
+		if currentVersion.parts[i] > latestVersion.parts[i] {
 			return 1
 		}
+	}
+	if currentVersion.hasAsharcaSuffix != latestVersion.hasAsharcaSuffix {
+		if currentVersion.hasAsharcaSuffix {
+			return 1
+		}
+		return -1
+	}
+	if currentVersion.asharcaRevision < latestVersion.asharcaRevision {
+		return -1
+	}
+	if currentVersion.asharcaRevision > latestVersion.asharcaRevision {
+		return 1
 	}
 	return 0
 }
 
-func parseVersion(v string) [3]int {
-	v = strings.TrimPrefix(v, "v")
-	parts := strings.Split(v, ".")
-	result := [3]int{0, 0, 0}
+type parsedVersion struct {
+	parts            [3]int
+	hasAsharcaSuffix bool
+	asharcaRevision  int
+}
+
+func parseVersion(v string) parsedVersion {
+	v = strings.TrimPrefix(strings.TrimSpace(v), "v")
+	base, suffix, _ := strings.Cut(v, "-")
+
+	result := parsedVersion{}
+	parts := strings.Split(base, ".")
 	for i := 0; i < len(parts) && i < 3; i++ {
 		if parsed, err := strconv.Atoi(parts[i]); err == nil {
-			result[i] = parsed
+			result.parts[i] = parsed
 		}
 	}
+
+	if revision, ok := strings.CutPrefix(suffix, "asharca."); ok {
+		result.hasAsharcaSuffix = true
+		if parsed, err := strconv.Atoi(revision); err == nil {
+			result.asharcaRevision = parsed
+		}
+	}
+
 	return result
 }

@@ -32,6 +32,7 @@ type OpenAIGatewayHandler struct {
 	billingCacheService      *service.BillingCacheService
 	apiKeyService            *service.APIKeyService
 	usageRecordWorkerPool    *service.UsageRecordWorkerPool
+	conversationLogService   *service.ConversationLogService
 	errorPassthroughService  *service.ErrorPassthroughService
 	contentModerationService *service.ContentModerationService
 	opsService               *service.OpsService
@@ -121,6 +122,7 @@ func NewOpenAIGatewayHandler(
 	billingCacheService *service.BillingCacheService,
 	apiKeyService *service.APIKeyService,
 	usageRecordWorkerPool *service.UsageRecordWorkerPool,
+	conversationLogService *service.ConversationLogService,
 	errorPassthroughService *service.ErrorPassthroughService,
 	contentModerationService *service.ContentModerationService,
 	opsService *service.OpsService,
@@ -139,6 +141,7 @@ func NewOpenAIGatewayHandler(
 		billingCacheService:      billingCacheService,
 		apiKeyService:            apiKeyService,
 		usageRecordWorkerPool:    usageRecordWorkerPool,
+		conversationLogService:   conversationLogService,
 		errorPassthroughService:  errorPassthroughService,
 		contentModerationService: contentModerationService,
 		opsService:               opsService,
@@ -199,6 +202,8 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Request body is empty")
 		return
 	}
+	conversationCapture := startConversationResponseCapture(c, h.conversationLogService)
+	defer conversationCapture.Restore(c)
 
 	setOpsRequestContext(c, "", false)
 	sessionHashBody := body
@@ -555,6 +560,16 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 				).Error("openai.record_usage_failed", zap.Error(err))
 			}
 		})
+		submitOpenAIConversationLog(c.Request.Context(), h.conversationLogService, conversationLogBaseInput{
+			Body:             body,
+			Capture:          conversationCapture,
+			APIKey:           apiKey,
+			Account:          account,
+			InboundEndpoint:  inboundEndpoint,
+			UpstreamEndpoint: upstreamEndpoint,
+			StatusCode:       conversationLogStatus(c),
+			RequestHash:      requestPayloadHash,
+		}, reqModel, result)
 		reqLog.Debug("openai.request_completed",
 			zap.Int64("account_id", account.ID),
 			zap.Int("switch_count", switchCount),
@@ -694,6 +709,8 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 		h.anthropicErrorResponse(c, http.StatusBadRequest, "invalid_request_error", "Request body is empty")
 		return
 	}
+	conversationCapture := startConversationResponseCapture(c, h.conversationLogService)
+	defer conversationCapture.Restore(c)
 
 	if !gjson.ValidBytes(body) {
 		h.anthropicErrorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to parse request body")
@@ -969,6 +986,16 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 				).Error("openai_messages.record_usage_failed", zap.Error(err))
 			}
 		})
+		submitOpenAIConversationLog(c.Request.Context(), h.conversationLogService, conversationLogBaseInput{
+			Body:             body,
+			Capture:          conversationCapture,
+			APIKey:           apiKey,
+			Account:          account,
+			InboundEndpoint:  inboundEndpoint,
+			UpstreamEndpoint: upstreamEndpoint,
+			StatusCode:       conversationLogStatus(c),
+			RequestHash:      requestPayloadHash,
+		}, reqModel, result)
 		reqLog.Debug("openai_messages.request_completed",
 			zap.Int64("account_id", account.ID),
 			zap.Int("switch_count", switchCount),
