@@ -271,6 +271,7 @@ import { useAppStore } from '@/stores/app'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
 import { adminConversationLogsAPI } from '@/api/admin/conversationLogs'
 import type { ConversationLog, ConversationLogQueryParams } from '@/api/admin/conversationLogs'
+import { parsePayload } from '@/utils/conversationPayload'
 import type { Column } from '@/components/common/types'
 import type { UsageRequestType } from '@/types'
 
@@ -576,20 +577,6 @@ const DetailItem = defineComponent({
 
 type JsonKey = string | number
 
-function parsePayload(body: string): { parsed: boolean; value: unknown; raw: string } {
-  if (!body) return { parsed: false, value: null, raw: '' }
-  const trimmed = body.trim()
-  if (!trimmed) return { parsed: false, value: null, raw: '' }
-  if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) {
-    return { parsed: false, value: null, raw: body }
-  }
-  try {
-    return { parsed: true, value: JSON.parse(trimmed), raw: body }
-  } catch {
-    return { parsed: false, value: null, raw: body }
-  }
-}
-
 function isJsonRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
@@ -683,7 +670,7 @@ const PayloadPanel = defineComponent({
             h('div', { class: 'flex min-w-0 items-center gap-2' }, [
               h('h3', { class: 'truncate text-sm font-semibold text-gray-900 dark:text-white' }, props.title),
               payload.parsed
-                ? h('span', { class: 'rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300' }, 'JSON')
+                ? h('span', { class: 'rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300' }, payload.format === 'sse' ? 'SSE JSON' : 'JSON')
                 : null
             ]),
             props.truncated
