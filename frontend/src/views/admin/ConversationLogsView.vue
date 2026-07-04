@@ -14,7 +14,7 @@
                 <input
                   v-model="filters.q"
                   type="text"
-                  :placeholder="t('admin.conversationLogs.searchPlaceholder')"
+                  :placeholder="isAdminView ? t('admin.conversationLogs.searchPlaceholder') : t('admin.conversationLogs.userSearchPlaceholder')"
                   class="input pl-10"
                   @input="onSearchInput"
                   @keyup.enter="applyFilters"
@@ -217,21 +217,21 @@
       </div>
 
       <div class="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <DetailItem :label="t('admin.conversationLogs.user')" :value="displayUser(selectedLog)" />
+        <DetailItem v-if="isAdminView" :label="t('admin.conversationLogs.user')" :value="displayUser(selectedLog)" />
         <DetailItem :label="t('admin.conversationLogs.apiKey')" :value="displayApiKey(selectedLog)" />
-        <DetailItem :label="t('admin.conversationLogs.account')" :value="displayAccount(selectedLog)" />
+        <DetailItem v-if="isAdminView" :label="t('admin.conversationLogs.account')" :value="displayAccount(selectedLog)" />
         <DetailItem :label="t('admin.conversationLogs.group')" :value="displayGroup(selectedLog)" />
         <DetailItem :label="t('admin.conversationLogs.platform')" :value="selectedLog.platform || '-'" />
         <DetailItem :label="t('admin.conversationLogs.model')" :value="selectedLog.model || selectedLog.requested_model || '-'" />
         <DetailItem :label="t('admin.conversationLogs.requestType')" :value="requestTypeLabel(selectedLog.request_type)" />
         <DetailItem :label="t('admin.conversationLogs.status')" :value="String(selectedLog.status_code || '-')" />
         <DetailItem :label="t('admin.conversationLogs.inboundEndpoint')" :value="selectedLog.inbound_endpoint || '-'" />
-        <DetailItem :label="t('admin.conversationLogs.upstreamEndpoint')" :value="selectedLog.upstream_endpoint || '-'" />
+        <DetailItem v-if="isAdminView" :label="t('admin.conversationLogs.upstreamEndpoint')" :value="selectedLog.upstream_endpoint || '-'" />
         <DetailItem :label="t('admin.conversationLogs.latency')" :value="formatMs(selectedLog.duration_ms)" />
-        <DetailItem :label="t('admin.conversationLogs.queueDelay')" :value="formatMs(selectedLog.queue_delay_ms)" />
+        <DetailItem v-if="isAdminView" :label="t('admin.conversationLogs.queueDelay')" :value="formatMs(selectedLog.queue_delay_ms)" />
         <DetailItem :label="t('admin.conversationLogs.totalTokens')" :value="formatNumber(selectedLog.total_tokens)" />
         <DetailItem :label="t('admin.conversationLogs.cacheTokens')" :value="formatNumber(selectedLog.cache_read_tokens + selectedLog.cache_create_tokens)" />
-        <DetailItem :label="t('admin.conversationLogs.requestHash')" :value="selectedLog.request_hash || '-'" />
+        <DetailItem v-if="isAdminView" :label="t('admin.conversationLogs.requestHash')" :value="selectedLog.request_hash || '-'" />
         <DetailItem :label="t('admin.conversationLogs.responseId')" :value="selectedLog.response_id || '-'" />
       </div>
 
@@ -258,6 +258,7 @@
 <script setup lang="ts">
 import { computed, defineComponent, h, onMounted, onUnmounted, reactive, ref, type PropType, type VNodeChild } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRoute } from 'vue-router'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import TablePageLayout from '@/components/layout/TablePageLayout.vue'
 import DataTable from '@/components/common/DataTable.vue'
@@ -270,6 +271,7 @@ import Icon from '@/components/icons/Icon.vue'
 import { useAppStore } from '@/stores/app'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
 import { adminConversationLogsAPI } from '@/api/admin/conversationLogs'
+import { conversationLogsAPI } from '@/api/conversationLogs'
 import type { ConversationLog, ConversationLogQueryParams } from '@/api/admin/conversationLogs'
 import { parsePayload } from '@/utils/conversationPayload'
 import type { Column } from '@/components/common/types'
@@ -279,6 +281,9 @@ type SortOrder = 'asc' | 'desc'
 
 const { t, locale } = useI18n()
 const appStore = useAppStore()
+const route = useRoute()
+const isAdminView = computed(() => route.path.startsWith('/admin/'))
+const activeConversationLogsAPI = computed(() => isAdminView.value ? adminConversationLogsAPI : conversationLogsAPI)
 
 const todayString = () => formatDateForInput(new Date())
 const daysAgoString = (days: number) => {
@@ -320,16 +325,23 @@ const filters = reactive<{
 let abortController: AbortController | null = null
 let searchTimer: number | null = null
 
-const columns = computed<Column[]>(() => [
-  { key: 'created_at', label: t('admin.conversationLogs.time'), sortable: true, class: 'min-w-[180px]' },
-  { key: 'actor', label: t('admin.conversationLogs.actor'), class: 'min-w-[220px]' },
-  { key: 'route', label: t('admin.conversationLogs.route'), class: 'min-w-[220px]' },
-  { key: 'model', label: t('admin.conversationLogs.model'), class: 'min-w-[200px]' },
-  { key: 'status_code', label: t('admin.conversationLogs.status'), sortable: true, class: 'min-w-[110px]' },
-  { key: 'total_tokens', label: t('admin.conversationLogs.tokens'), class: 'min-w-[120px]' },
-  { key: 'duration_ms', label: t('admin.conversationLogs.latency'), sortable: true, class: 'min-w-[140px]' },
-  { key: 'actions', label: t('admin.conversationLogs.action'), class: 'min-w-[140px]' }
-])
+const columns = computed<Column[]>(() => {
+  const items: Column[] = [
+    { key: 'created_at', label: t('admin.conversationLogs.time'), sortable: true, class: 'min-w-[180px]' }
+  ]
+  if (isAdminView.value) {
+    items.push({ key: 'actor', label: t('admin.conversationLogs.actor'), class: 'min-w-[220px]' })
+  }
+  items.push(
+    { key: 'route', label: t('admin.conversationLogs.route'), class: 'min-w-[220px]' },
+    { key: 'model', label: t('admin.conversationLogs.model'), class: 'min-w-[200px]' },
+    { key: 'status_code', label: t('admin.conversationLogs.status'), sortable: true, class: 'min-w-[110px]' },
+    { key: 'total_tokens', label: t('admin.conversationLogs.tokens'), class: 'min-w-[120px]' },
+    { key: 'duration_ms', label: t('admin.conversationLogs.latency'), sortable: true, class: 'min-w-[140px]' },
+    { key: 'actions', label: t('admin.conversationLogs.action'), class: 'min-w-[140px]' }
+  )
+  return items
+})
 
 const platformOptions = computed(() => [
   { value: null, label: t('admin.conversationLogs.allPlatforms') },
@@ -361,7 +373,7 @@ async function loadLogs() {
   loading.value = true
   try {
     const params = buildQueryParams()
-    const result = await adminConversationLogsAPI.list(params, { signal: controller.signal })
+    const result = await activeConversationLogsAPI.value.list(params, { signal: controller.signal })
     if (controller.signal.aborted) return
     logs.value = result.items || []
     pagination.total = result.total || 0
@@ -448,7 +460,7 @@ async function openDetail(row: ConversationLog) {
   detailVisible.value = true
   detailLoading.value = true
   try {
-    const detail = await adminConversationLogsAPI.getById(row.id)
+    const detail = await activeConversationLogsAPI.value.getById(row.id)
     if (selectedLog.value?.id === row.id) {
       selectedLog.value = detail
     }
@@ -503,6 +515,9 @@ function actorTitle(row: ConversationLog) {
 }
 
 function routeTitle(row: ConversationLog) {
+  if (!isAdminView.value) {
+    return row.inbound_endpoint || '-'
+  }
   return [row.inbound_endpoint, row.upstream_endpoint].filter(Boolean).join(' -> ')
 }
 

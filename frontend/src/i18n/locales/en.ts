@@ -1033,6 +1033,10 @@ export default {
       },
     },
   },
+  conversationLogs: {
+    title: 'Conversation Logs',
+    description: 'View your saved request and AI response records'
+  },
 
   // Shared keys for channel monitor (admin + user views)
   monitorCommon: {
@@ -4845,6 +4849,7 @@ export default {
       title: 'Conversation Logs',
       description: 'View async records of user request bodies and AI response bodies',
       searchPlaceholder: 'Search request ID, response ID, model, user, or account...',
+      userSearchPlaceholder: 'Search request ID, response ID, or model...',
       modelPlaceholder: 'Model name',
       allPlatforms: 'All Platforms',
       allTypes: 'All Types',

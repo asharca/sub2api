@@ -1037,6 +1037,10 @@ export default {
       },
     },
   },
+  conversationLogs: {
+    title: '对话记录',
+    description: '查看你自己的请求与 AI 响应记录'
+  },
 
   // Shared keys for channel monitor (admin + user views)
   monitorCommon: {
@@ -4997,6 +5001,7 @@ export default {
       title: '对话记录',
       description: '查看用户请求体与 AI 响应体的异步记录',
       searchPlaceholder: '搜索请求ID、响应ID、模型、用户或账号...',
+      userSearchPlaceholder: '搜索请求ID、响应ID或模型...',
       modelPlaceholder: '模型名',
       allPlatforms: '全部平台',
       allTypes: '全部类型',

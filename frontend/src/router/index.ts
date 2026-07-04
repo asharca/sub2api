@@ -218,6 +218,18 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/conversation-logs',
+    name: 'ConversationLogs',
+    component: () => import('@/views/admin/ConversationLogsView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      title: 'Conversation Logs',
+      titleKey: 'conversationLogs.title',
+      descriptionKey: 'conversationLogs.description'
+    }
+  },
+  {
     path: '/redeem',
     name: 'Redeem',
     component: () => import('@/views/user/RedeemView.vue'),
