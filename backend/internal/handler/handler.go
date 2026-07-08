@@ -26,6 +26,7 @@ type AdminHandlers struct {
 	System                 *admin.SystemHandler
 	Subscription           *admin.SubscriptionHandler
 	Usage                  *admin.UsageHandler
+	ConversationLog        *admin.ConversationLogHandler
 	UserAttribute          *admin.UserAttributeHandler
 	ErrorPassthrough       *admin.ErrorPassthroughHandler
 	TLSFingerprintProfile  *admin.TLSFingerprintProfileHandler
@@ -50,6 +51,7 @@ type Handlers struct {
 	Subscription     *SubscriptionHandler
 	Announcement     *AnnouncementHandler
 	ChannelMonitor   *ChannelMonitorUserHandler
+	ConversationLog  *ConversationLogHandler
 	Admin            *AdminHandlers
 	Gateway          *GatewayHandler
 	OpenAIGateway    *OpenAIGatewayHandler
@@ -64,5 +66,6 @@ type Handlers struct {
 // BuildInfo contains build-time information
 type BuildInfo struct {
 	Version   string
+	Commit    string
 	BuildType string // "source" for manual builds, "release" for CI builds
 }
