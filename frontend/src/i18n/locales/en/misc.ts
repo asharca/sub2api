@@ -91,6 +91,11 @@ export default {
     markReadHint: 'Click "Mark as read" to mark this announcement'
   },
 
+  conversationLogs: {
+    title: 'Conversation Logs',
+    description: 'View your saved request and AI response records'
+  },
+
   // User Subscriptions Page
   userSubscriptions: {
     title: 'My Subscriptions',

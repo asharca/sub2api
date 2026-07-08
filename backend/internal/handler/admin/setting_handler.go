@@ -59,6 +59,7 @@ type SettingHandler struct {
 	paymentService           *service.PaymentService
 	userAttributeService     *service.UserAttributeService
 	notificationEmailService *service.NotificationEmailService
+	conversationLogService   *service.ConversationLogService
 }
 
 // NewSettingHandler 创建系统设置处理器
@@ -78,6 +79,12 @@ func NewSettingHandler(settingService *service.SettingService, emailService *ser
 // the constructor signature used by existing unit tests.
 func (h *SettingHandler) SetNotificationEmailService(notificationEmailService *service.NotificationEmailService) {
 	h.notificationEmailService = notificationEmailService
+}
+
+// SetConversationLogService attaches the runtime conversation log service so settings updates
+// take effect without restarting the process.
+func (h *SettingHandler) SetConversationLogService(conversationLogService *service.ConversationLogService) {
+	h.conversationLogService = conversationLogService
 }
 
 // GetSettings 获取所有系统设置

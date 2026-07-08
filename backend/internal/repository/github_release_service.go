@@ -63,7 +63,7 @@ func NewGitHubReleaseClient(proxyURL string, allowDirectOnProxyError bool) servi
 	}
 }
 
-func (c *githubReleaseClientError) FetchLatestRelease(ctx context.Context, repo string) (*service.GitHubRelease, error) {
+func (c *githubReleaseClientError) FetchLatestRelease(ctx context.Context, repo, branch string) (*service.GitHubRelease, error) {
 	return nil, c.err
 }
 
@@ -75,7 +75,14 @@ func (c *githubReleaseClientError) FetchChecksumFile(ctx context.Context, url st
 	return nil, c.err
 }
 
-func (c *githubReleaseClient) FetchLatestRelease(ctx context.Context, repo string) (*service.GitHubRelease, error) {
+func (c *githubReleaseClient) FetchLatestRelease(ctx context.Context, repo, branch string) (*service.GitHubRelease, error) {
+	if strings.TrimSpace(branch) == "" {
+		return c.fetchLatestRelease(ctx, repo)
+	}
+	return c.fetchLatestReleaseForBranch(ctx, repo, branch)
+}
+
+func (c *githubReleaseClient) fetchLatestRelease(ctx context.Context, repo string) (*service.GitHubRelease, error) {
 	url := fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", repo)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
@@ -101,6 +108,55 @@ func (c *githubReleaseClient) FetchLatestRelease(ctx context.Context, repo strin
 	}
 
 	return &release, nil
+}
+
+func (c *githubReleaseClient) fetchLatestReleaseForBranch(ctx context.Context, repo, branch string) (*service.GitHubRelease, error) {
+	url := fmt.Sprintf("https://api.github.com/repos/%s/releases?per_page=50", repo)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "application/vnd.github.v3+json")
+	req.Header.Set("User-Agent", "Sub2API-Updater")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("GitHub API returned %d", resp.StatusCode)
+	}
+
+	var releases []service.GitHubRelease
+	if err := json.NewDecoder(resp.Body).Decode(&releases); err != nil {
+		return nil, err
+	}
+
+	var fallback *service.GitHubRelease
+	for i := range releases {
+		release := &releases[i]
+		if release.Draft || release.Prerelease {
+			continue
+		}
+		if release.TargetCommitish != branch {
+			continue
+		}
+		if strings.Contains(release.TagName, "-asharca.") {
+			return release, nil
+		}
+		if fallback == nil {
+			fallback = release
+		}
+	}
+
+	if fallback != nil {
+		return fallback, nil
+	}
+
+	return nil, fmt.Errorf("no release found for branch %q", branch)
 }
 
 func (c *githubReleaseClient) DownloadFile(ctx context.Context, url, dest string, maxSize int64) error {

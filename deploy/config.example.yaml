@@ -410,6 +410,36 @@ gateway:
   # Max bytes to log from upstream error body
   # 记录上游错误响应体的最大字节数
   log_upstream_error_body_max_bytes: 2048
+  # Asynchronously persist user request bodies and upstream responses (default disabled)
+  # 异步记录用户请求体和上游响应体（默认关闭）
+  conversation_log:
+    # Enable conversation logging; false keeps the hot path unchanged except config load
+    # 是否启用对话记录；false 时请求热路径保持不变
+    enabled: false
+    # Number of async workers writing conversation logs
+    # 异步写入对话记录的 worker 数
+    worker_count: 4
+    # Max queued conversation log tasks per process
+    # 当前进程最多排队的对话记录任务数
+    queue_size: 4096
+    # Per-write timeout in seconds
+    # 单次写入超时时间（秒）
+    task_timeout_seconds: 5
+    # Queue overflow policy: sync (sync avoids active drops but may slow requests when full)
+    # 队列满时策略：sync=同步兜底写入避免主动丢弃
+    overflow_policy: "sync"
+    # Store request body snapshots
+    # 保存请求体快照
+    store_request: true
+    # Store response body snapshots
+    # 保存响应体快照
+    store_response: true
+    # Deprecated: request bodies are stored without a byte limit; keep 0
+    # 已废弃：请求体不限制字节数完整保存，保持 0
+    max_request_bytes: 0
+    # Deprecated: response bodies are stored without a byte limit; keep 0
+    # 已废弃：响应体不限制字节数完整保存，保持 0
+    max_response_bytes: 0
   # Auto inject anthropic-beta header for API-key accounts when needed (default: off)
   # 需要时自动为 API-key 账户注入 anthropic-beta 头（默认：关闭）
   inject_beta_for_apikey: false

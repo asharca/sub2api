@@ -154,6 +154,85 @@ func (h *SettingHandler) UpdateRateLimit429CooldownSettings(c *gin.Context) {
 	})
 }
 
+// GetConversationLogSettings 获取用户对话记录配置
+// GET /api/v1/admin/settings/conversation-log
+func (h *SettingHandler) GetConversationLogSettings(c *gin.Context) {
+	settings, err := h.settingService.GetConversationLogSettings(c.Request.Context())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	response.Success(c, conversationLogSettingsToDTO(settings))
+}
+
+// UpdateConversationLogSettingsRequest 更新用户对话记录配置请求
+type UpdateConversationLogSettingsRequest struct {
+	Enabled            bool   `json:"enabled"`
+	WorkerCount        int    `json:"worker_count"`
+	QueueSize          int    `json:"queue_size"`
+	TaskTimeoutSeconds int    `json:"task_timeout_seconds"`
+	OverflowPolicy     string `json:"overflow_policy"`
+	StoreRequest       bool   `json:"store_request"`
+	StoreResponse      bool   `json:"store_response"`
+	MaxRequestBytes    int    `json:"max_request_bytes"`
+	MaxResponseBytes   int    `json:"max_response_bytes"`
+}
+
+// UpdateConversationLogSettings 更新用户对话记录配置
+// PUT /api/v1/admin/settings/conversation-log
+func (h *SettingHandler) UpdateConversationLogSettings(c *gin.Context) {
+	var req UpdateConversationLogSettingsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+
+	settings := &service.ConversationLogSettings{
+		Enabled:            req.Enabled,
+		WorkerCount:        req.WorkerCount,
+		QueueSize:          req.QueueSize,
+		TaskTimeoutSeconds: req.TaskTimeoutSeconds,
+		OverflowPolicy:     req.OverflowPolicy,
+		StoreRequest:       req.StoreRequest,
+		StoreResponse:      req.StoreResponse,
+		MaxRequestBytes:    req.MaxRequestBytes,
+		MaxResponseBytes:   req.MaxResponseBytes,
+	}
+	if err := h.settingService.SetConversationLogSettings(c.Request.Context(), settings); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+
+	updatedSettings, err := h.settingService.GetConversationLogSettings(c.Request.Context())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	if h.conversationLogService != nil {
+		h.conversationLogService.ApplySettings(updatedSettings)
+	}
+
+	response.Success(c, conversationLogSettingsToDTO(updatedSettings))
+}
+
+func conversationLogSettingsToDTO(settings *service.ConversationLogSettings) dto.ConversationLogSettings {
+	if settings == nil {
+		settings = service.DefaultConversationLogSettings()
+	}
+	return dto.ConversationLogSettings{
+		Enabled:            settings.Enabled,
+		WorkerCount:        settings.WorkerCount,
+		QueueSize:          settings.QueueSize,
+		TaskTimeoutSeconds: settings.TaskTimeoutSeconds,
+		OverflowPolicy:     settings.OverflowPolicy,
+		StoreRequest:       settings.StoreRequest,
+		StoreResponse:      settings.StoreResponse,
+		MaxRequestBytes:    settings.MaxRequestBytes,
+		MaxResponseBytes:   settings.MaxResponseBytes,
+	}
+}
+
 // GetStreamTimeoutSettings 获取流超时处理配置
 // GET /api/v1/admin/settings/stream-timeout
 func (h *SettingHandler) GetStreamTimeoutSettings(c *gin.Context) {

@@ -28,7 +28,7 @@ type testTransport struct {
 
 func (t *testTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	// Rewrite the URL to point to our test server
-	testURL := t.testServerURL + req.URL.Path
+	testURL := t.testServerURL + req.URL.RequestURI()
 	newReq, err := http.NewRequestWithContext(req.Context(), req.Method, testURL, req.Body)
 	if err != nil {
 		return nil, err
@@ -237,12 +237,107 @@ func (s *GitHubReleaseServiceSuite) TestFetchLatestRelease_Success() {
 		downloadHTTPClient: &http.Client{},
 	}
 
-	release, err := s.client.FetchLatestRelease(context.Background(), "test/repo")
+	release, err := s.client.FetchLatestRelease(context.Background(), "test/repo", "")
 	require.NoError(s.T(), err)
 	require.Equal(s.T(), "v1.0.0", release.TagName)
 	require.Equal(s.T(), "Release 1.0.0", release.Name)
 	require.Len(s.T(), release.Assets, 1)
 	require.Equal(s.T(), "app-linux-amd64.tar.gz", release.Assets[0].Name)
+}
+
+func (s *GitHubReleaseServiceSuite) TestFetchLatestRelease_FiltersByBranch() {
+	releasesJSON := `[
+		{
+			"tag_name": "v1.0.1",
+			"name": "Main release",
+			"target_commitish": "main",
+			"html_url": "https://github.com/test/repo/releases/v1.0.1",
+			"assets": []
+		},
+		{
+			"tag_name": "v1.0.0-beta",
+			"name": "Branch prerelease",
+			"target_commitish": "feat/conversation-storage",
+			"prerelease": true,
+			"html_url": "https://github.com/test/repo/releases/v1.0.0-beta",
+			"assets": []
+		},
+		{
+			"tag_name": "v1.0.0",
+			"name": "Branch release",
+			"target_commitish": "feat/conversation-storage",
+			"html_url": "https://github.com/test/repo/releases/v1.0.0",
+			"assets": [
+				{
+					"name": "app-linux-amd64.tar.gz",
+					"browser_download_url": "https://github.com/test/repo/releases/download/v1.0.0/app-linux-amd64.tar.gz"
+				}
+			]
+		}
+	]`
+
+	s.srv = newLocalTestServer(s.T(), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(s.T(), "/repos/test/repo/releases", r.URL.Path)
+		require.Equal(s.T(), "50", r.URL.Query().Get("per_page"))
+		require.Equal(s.T(), "application/vnd.github.v3+json", r.Header.Get("Accept"))
+		require.Equal(s.T(), "Sub2API-Updater", r.Header.Get("User-Agent"))
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(releasesJSON))
+	}))
+
+	s.client = &githubReleaseClient{
+		httpClient: &http.Client{
+			Transport: &testTransport{testServerURL: s.srv.URL},
+		},
+		downloadHTTPClient: &http.Client{},
+	}
+
+	release, err := s.client.FetchLatestRelease(context.Background(), "test/repo", "feat/conversation-storage")
+	require.NoError(s.T(), err)
+	require.Equal(s.T(), "v1.0.0", release.TagName)
+	require.Equal(s.T(), "feat/conversation-storage", release.TargetCommitish)
+	require.Len(s.T(), release.Assets, 1)
+}
+
+func (s *GitHubReleaseServiceSuite) TestFetchLatestRelease_PrefersAsharcaTagForBranch() {
+	releasesJSON := `[
+		{
+			"tag_name": "v1.0.0",
+			"name": "Stable branch release",
+			"target_commitish": "feat/conversation-storage",
+			"html_url": "https://github.com/test/repo/releases/v1.0.0",
+			"assets": []
+		},
+		{
+			"tag_name": "v1.0.0-asharca.1",
+			"name": "v1.0.0-asharca.1",
+			"target_commitish": "feat/conversation-storage",
+			"html_url": "https://github.com/test/repo/releases/v1.0.0-asharca.1",
+			"assets": []
+		}
+	]`
+
+	s.srv = newLocalTestServer(s.T(), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(s.T(), "/repos/test/repo/releases", r.URL.Path)
+		require.Equal(s.T(), "50", r.URL.Query().Get("per_page"))
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(releasesJSON))
+	}))
+
+	s.client = &githubReleaseClient{
+		httpClient: &http.Client{
+			Transport: &testTransport{testServerURL: s.srv.URL},
+		},
+		downloadHTTPClient: &http.Client{},
+	}
+
+	release, err := s.client.FetchLatestRelease(context.Background(), "test/repo", "feat/conversation-storage")
+	require.NoError(s.T(), err)
+	require.Equal(s.T(), "v1.0.0-asharca.1", release.TagName)
+	require.Equal(s.T(), "v1.0.0-asharca.1", release.Name)
+	require.False(s.T(), release.Prerelease)
 }
 
 func (s *GitHubReleaseServiceSuite) TestFetchLatestRelease_Non200() {
@@ -257,7 +352,7 @@ func (s *GitHubReleaseServiceSuite) TestFetchLatestRelease_Non200() {
 		downloadHTTPClient: &http.Client{},
 	}
 
-	_, err := s.client.FetchLatestRelease(context.Background(), "test/repo")
+	_, err := s.client.FetchLatestRelease(context.Background(), "test/repo", "")
 	require.Error(s.T(), err)
 	require.Contains(s.T(), err.Error(), "404")
 }
@@ -275,7 +370,7 @@ func (s *GitHubReleaseServiceSuite) TestFetchLatestRelease_InvalidJSON() {
 		downloadHTTPClient: &http.Client{},
 	}
 
-	_, err := s.client.FetchLatestRelease(context.Background(), "test/repo")
+	_, err := s.client.FetchLatestRelease(context.Background(), "test/repo", "")
 	require.Error(s.T(), err)
 }
 
@@ -294,7 +389,7 @@ func (s *GitHubReleaseServiceSuite) TestFetchLatestRelease_ContextCancel() {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	_, err := s.client.FetchLatestRelease(ctx, "test/repo")
+	_, err := s.client.FetchLatestRelease(ctx, "test/repo", "")
 	require.Error(s.T(), err)
 }
 
