@@ -231,6 +231,18 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/conversation-logs',
+    name: 'ConversationLogs',
+    component: () => import('@/views/admin/ConversationLogsView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      title: 'Conversation Logs',
+      titleKey: 'conversationLogs.title',
+      descriptionKey: 'conversationLogs.description'
+    }
+  },
+  {
     path: '/redeem',
     name: 'Redeem',
     component: () => import('@/views/user/RedeemView.vue'),
@@ -610,6 +622,18 @@ const routes: RouteRecordRaw[] = [
       title: 'Usage Records',
       titleKey: 'admin.usage.title',
       descriptionKey: 'admin.usage.description'
+    }
+  },
+  {
+    path: '/admin/conversation-logs',
+    name: 'AdminConversationLogs',
+    component: () => import('@/views/admin/ConversationLogsView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      title: 'Conversation Logs',
+      titleKey: 'admin.conversationLogs.title',
+      descriptionKey: 'admin.conversationLogs.description'
     }
   },
   {

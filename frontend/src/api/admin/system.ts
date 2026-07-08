@@ -13,7 +13,9 @@ export interface ReleaseInfo {
 
 export interface VersionInfo {
   current_version: string
+  current_display_version?: string
   latest_version: string
+  latest_display_version?: string
   has_update: boolean
   release_info?: ReleaseInfo
   cached: boolean
@@ -24,8 +26,8 @@ export interface VersionInfo {
 /**
  * Get current version
  */
-export async function getVersion(): Promise<{ version: string }> {
-  const { data } = await apiClient.get<{ version: string }>('/admin/system/version')
+export async function getVersion(): Promise<{ version: string; display_version?: string }> {
+  const { data } = await apiClient.get<{ version: string; display_version?: string }>('/admin/system/version')
   return data
 }
 

@@ -518,6 +518,19 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 					return fmt.Errorf("resolve Grok websocket cache identity: %w", err)
 				}
 			}
+			if hooks != nil && hooks.CaptureRequest != nil {
+				hooks.CaptureRequest(turn, bridgePayloadRaw, currentBridgePayload.originalModel)
+			}
+			turnWriteClientMessage := writeClientMessage
+			if hooks != nil && hooks.CaptureResponse != nil {
+				turnWriteClientMessage = func(message []byte) error {
+					if err := writeClientMessage(message); err != nil {
+						return err
+					}
+					hooks.CaptureResponse(turn, message)
+					return nil
+				}
+			}
 			result, bridgeErr := s.proxyOpenAIWSHTTPBridgeTurn(
 				ctx,
 				c,
@@ -531,7 +544,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 				currentBridgePayload.imageInputSize,
 				grokCacheIdentity,
 				turn,
-				writeClientMessage,
+				turnWriteClientMessage,
 			)
 			if hooks != nil && hooks.AfterTurn != nil {
 				hooks.AfterTurn(turn, result, bridgeErr)
@@ -954,6 +967,9 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 						)
 					}
 				} else {
+					if hooks != nil && hooks.CaptureResponse != nil {
+						hooks.CaptureResponse(turn, upstreamMessage)
+					}
 					wroteDownstream = true
 				}
 			}
@@ -1509,6 +1525,9 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			)
 		}
 
+		if hooks != nil && hooks.CaptureRequest != nil {
+			hooks.CaptureRequest(turn, currentPayload, currentOriginalModel)
+		}
 		result, relayErr := sendAndRelay(turn, sessionLease, currentPayload, currentPayloadBytes, currentOriginalModel, currentImageBillingModel, currentImageSizeTier, currentImageInputSize)
 		if relayErr != nil {
 			lastTurnClean = false

@@ -61,6 +61,7 @@ type SettingHandler struct {
 	notificationEmailService *service.NotificationEmailService
 	totpService              *service.TotpService
 	userService              *service.UserService
+	conversationLogService   *service.ConversationLogService
 }
 
 // NewSettingHandler 创建系统设置处理器
@@ -89,6 +90,12 @@ func (h *SettingHandler) SetNotificationEmailService(notificationEmailService *s
 func (h *SettingHandler) SetStepUpDeps(totpService *service.TotpService, userService *service.UserService) {
 	h.totpService = totpService
 	h.userService = userService
+}
+
+// SetConversationLogService attaches the runtime conversation log service so settings updates
+// take effect without restarting the process.
+func (h *SettingHandler) SetConversationLogService(conversationLogService *service.ConversationLogService) {
+	h.conversationLogService = conversationLogService
 }
 
 // GetSettings 获取所有系统设置

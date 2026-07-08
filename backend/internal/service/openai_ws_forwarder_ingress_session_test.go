@@ -801,7 +801,19 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_PassthroughModeR
 
 	serverErrCh := make(chan error, 1)
 	resultCh := make(chan *OpenAIForwardResult, 1)
+	requestCaptureCh := make(chan []byte, 1)
+	responseCaptureCh := make(chan []byte, 2)
 	hooks := &OpenAIWSIngressHooks{
+		CaptureRequest: func(turn int, payload []byte, _ string) {
+			if turn == 1 {
+				requestCaptureCh <- append([]byte(nil), payload...)
+			}
+		},
+		CaptureResponse: func(turn int, payload []byte) {
+			if turn == 1 {
+				responseCaptureCh <- append([]byte(nil), payload...)
+			}
+		},
 		AfterTurn: func(_ int, result *OpenAIForwardResult, turnErr error) {
 			if turnErr == nil && result != nil {
 				resultCh <- result
@@ -890,6 +902,22 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_PassthroughModeR
 		require.Equal(t, "high", *result.ReasoningEffort)
 	case <-time.After(2 * time.Second):
 		t.Fatal("未收到 passthrough turn 结果回调")
+	}
+
+	select {
+	case capturedReq := <-requestCaptureCh:
+		require.Equal(t, "response.create", gjson.GetBytes(capturedReq, "type").String())
+		require.Equal(t, "gpt-5.1", gjson.GetBytes(capturedReq, "model").String())
+		require.Equal(t, "priority", gjson.GetBytes(capturedReq, "service_tier").String())
+	case <-time.After(2 * time.Second):
+		t.Fatal("未收到 passthrough 请求捕获")
+	}
+	select {
+	case capturedResp := <-responseCaptureCh:
+		require.Equal(t, "response.completed", gjson.GetBytes(capturedResp, "type").String())
+		require.Equal(t, "resp_passthrough_turn_1", gjson.GetBytes(capturedResp, "response.id").String())
+	case <-time.After(2 * time.Second):
+		t.Fatal("未收到 passthrough 响应捕获")
 	}
 
 	require.Equal(t, 1, captureDialer.DialCount(), "passthrough 模式应直接建立上游 websocket")
@@ -1084,7 +1112,19 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_HTTPBridgeModeRe
 
 	serverErrCh := make(chan error, 1)
 	resultCh := make(chan *OpenAIForwardResult, 1)
+	requestCaptureCh := make(chan []byte, 1)
+	responseCaptureCh := make(chan []byte, 4)
 	hooks := &OpenAIWSIngressHooks{
+		CaptureRequest: func(turn int, payload []byte, _ string) {
+			if turn == 1 {
+				requestCaptureCh <- append([]byte(nil), payload...)
+			}
+		},
+		CaptureResponse: func(turn int, payload []byte) {
+			if turn == 1 {
+				responseCaptureCh <- append([]byte(nil), payload...)
+			}
+		},
 		AfterTurn: func(_ int, result *OpenAIForwardResult, turnErr error) {
 			if turnErr == nil && result != nil {
 				resultCh <- result
@@ -1175,6 +1215,27 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_HTTPBridgeModeRe
 	case <-time.After(2 * time.Second):
 		t.Fatal("未收到 http_bridge turn 结果回调")
 	}
+
+	select {
+	case capturedReq := <-requestCaptureCh:
+		require.Equal(t, "response.create", gjson.GetBytes(capturedReq, "type").String())
+		require.Equal(t, "gpt-5.1", gjson.GetBytes(capturedReq, "model").String())
+	case <-time.After(2 * time.Second):
+		t.Fatal("未收到 http_bridge 请求捕获")
+	}
+	var capturedTerminal []byte
+	for i := 0; i < 2; i++ {
+		select {
+		case capturedResp := <-responseCaptureCh:
+			if gjson.GetBytes(capturedResp, "type").String() == "response.done" {
+				capturedTerminal = capturedResp
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("未收到 http_bridge 响应捕获")
+		}
+	}
+	require.NotNil(t, capturedTerminal)
+	require.Equal(t, "resp_http_bridge_1", gjson.GetBytes(capturedTerminal, "response.id").String())
 
 	require.NotNil(t, upstream.lastReq, "http_bridge 模式应调用 HTTP 上游")
 }

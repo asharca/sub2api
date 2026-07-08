@@ -216,6 +216,8 @@ type OpenAIWSIngressHooks struct {
 	ReasoningEffortMappings []ReasoningEffortMapping
 	BeforeTurn              func(turn int) error
 	BeforeRequest           func(turn int, payload []byte, originalModel string) error
+	CaptureRequest          func(turn int, payload []byte, originalModel string)
+	CaptureResponse         func(turn int, payload []byte)
 	AfterTurn               func(turn int, result *OpenAIForwardResult, turnErr error)
 }
 
