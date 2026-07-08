@@ -62,6 +62,8 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Request body is empty")
 		return
 	}
+	conversationCapture := startConversationResponseCapture(c, h.conversationLogService)
+	defer conversationCapture.Restore(c)
 
 	if !gjson.ValidBytes(body) {
 		logRequestBodyParseFailure(reqLog, body, nil)
@@ -301,6 +303,7 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 		inboundEndpoint := GetInboundEndpoint(c)
 		upstreamEndpoint := resolveOpenAIUpstreamEndpoint(c, account, result)
 		quotaPlatform := service.QuotaPlatform(c.Request.Context(), apiKey)
+		requestPayloadHash := service.HashUsageRequestPayload(body)
 
 		cyberBlocked := service.GetOpsCyberPolicy(c) != nil
 		h.submitOpenAIUsageRecordTask(c.Request.Context(), result, func(ctx context.Context) {
@@ -329,6 +332,16 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 				).Error("openai_chat_completions.record_usage_failed", zap.Error(err))
 			}
 		})
+		submitOpenAIConversationLog(c.Request.Context(), h.conversationLogService, conversationLogBaseInput{
+			Body:             body,
+			Capture:          conversationCapture,
+			APIKey:           apiKey,
+			Account:          account,
+			InboundEndpoint:  inboundEndpoint,
+			UpstreamEndpoint: upstreamEndpoint,
+			StatusCode:       conversationLogStatus(c),
+			RequestHash:      requestPayloadHash,
+		}, reqModel, result)
 		reqLog.Debug("openai_chat_completions.request_completed",
 			zap.Int64("account_id", account.ID),
 			zap.Int("switch_count", switchCount),

@@ -16,7 +16,7 @@ services:
   # Sub2API Application
   # ===========================================================================
   sub2api:
-    image: weishaw/sub2api:latest
+    image: ghcr.io/asharca/sub2api:${SUB2API_IMAGE_TAG:-0.1.153-asharca.1}
     container_name: sub2api
     restart: unless-stopped
     ulimits:
