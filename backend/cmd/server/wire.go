@@ -65,6 +65,7 @@ func providePrivacyClientFactory() service.PrivacyClientFactory {
 func provideServiceBuildInfo(buildInfo handler.BuildInfo) service.BuildInfo {
 	return service.BuildInfo{
 		Version:   buildInfo.Version,
+		Commit:    buildInfo.Commit,
 		BuildType: buildInfo.BuildType,
 	}
 }
@@ -91,6 +92,7 @@ func provideCleanup(
 	emailQueue *service.EmailQueueService,
 	billingCache *service.BillingCacheService,
 	usageRecordWorkerPool *service.UsageRecordWorkerPool,
+	conversationLogService *service.ConversationLogService,
 	subscriptionService *service.SubscriptionService,
 	oauth *service.OAuthService,
 	openaiOAuth *service.OpenAIOAuthService,
@@ -218,6 +220,12 @@ func provideCleanup(
 			{"UsageRecordWorkerPool", func() error {
 				if usageRecordWorkerPool != nil {
 					usageRecordWorkerPool.Stop()
+				}
+				return nil
+			}},
+			{"ConversationLogService", func() error {
+				if conversationLogService != nil {
+					conversationLogService.Stop()
 				}
 				return nil
 			}},

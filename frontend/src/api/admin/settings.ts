@@ -1187,6 +1187,37 @@ export async function updateRateLimit429CooldownSettings(
   return data;
 }
 
+// ==================== Conversation Log Settings ====================
+
+export interface ConversationLogSettings {
+  enabled: boolean;
+  worker_count: number;
+  queue_size: number;
+  task_timeout_seconds: number;
+  overflow_policy: "sync";
+  store_request: boolean;
+  store_response: boolean;
+  max_request_bytes: number;
+  max_response_bytes: number;
+}
+
+export async function getConversationLogSettings(): Promise<ConversationLogSettings> {
+  const { data } = await apiClient.get<ConversationLogSettings>(
+    "/admin/settings/conversation-log",
+  );
+  return data;
+}
+
+export async function updateConversationLogSettings(
+  settings: ConversationLogSettings,
+): Promise<ConversationLogSettings> {
+  const { data } = await apiClient.put<ConversationLogSettings>(
+    "/admin/settings/conversation-log",
+    settings,
+  );
+  return data;
+}
+
 // ==================== Stream Timeout Settings ====================
 
 /**
@@ -1414,6 +1445,8 @@ export const settingsAPI = {
   updateOverloadCooldownSettings,
   getRateLimit429CooldownSettings,
   updateRateLimit429CooldownSettings,
+  getConversationLogSettings,
+  updateConversationLogSettings,
   getStreamTimeoutSettings,
   updateStreamTimeoutSettings,
   getRectifierSettings,

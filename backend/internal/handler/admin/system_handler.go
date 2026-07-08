@@ -43,7 +43,8 @@ func NewSystemHandler(updateSvc systemUpdateService, lockSvc *service.SystemOper
 func (h *SystemHandler) GetVersion(c *gin.Context) {
 	info, _ := h.updateSvc.CheckUpdate(c.Request.Context(), false)
 	response.Success(c, gin.H{
-		"version": info.CurrentVersion,
+		"version":         info.CurrentVersion,
+		"display_version": info.CurrentDisplayVersion,
 	})
 }
 

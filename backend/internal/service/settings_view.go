@@ -494,6 +494,19 @@ type RateLimit429CooldownSettings struct {
 	CooldownSeconds int `json:"cooldown_seconds"`
 }
 
+// ConversationLogSettings 用户对话异步记录配置。
+type ConversationLogSettings struct {
+	Enabled            bool   `json:"enabled"`
+	WorkerCount        int    `json:"worker_count"`
+	QueueSize          int    `json:"queue_size"`
+	TaskTimeoutSeconds int    `json:"task_timeout_seconds"`
+	OverflowPolicy     string `json:"overflow_policy"`
+	StoreRequest       bool   `json:"store_request"`
+	StoreResponse      bool   `json:"store_response"`
+	MaxRequestBytes    int    `json:"max_request_bytes"`
+	MaxResponseBytes   int    `json:"max_response_bytes"`
+}
+
 // DefaultOverloadCooldownSettings 返回默认的过载冷却配置（启用，10分钟）
 func DefaultOverloadCooldownSettings() *OverloadCooldownSettings {
 	return &OverloadCooldownSettings{
@@ -507,6 +520,21 @@ func DefaultRateLimit429CooldownSettings() *RateLimit429CooldownSettings {
 	return &RateLimit429CooldownSettings{
 		Enabled:         true,
 		CooldownSeconds: 5,
+	}
+}
+
+// DefaultConversationLogSettings 返回默认的对话记录配置（默认关闭）。
+func DefaultConversationLogSettings() *ConversationLogSettings {
+	return &ConversationLogSettings{
+		Enabled:            false,
+		WorkerCount:        defaultConversationLogWorkerCount,
+		QueueSize:          defaultConversationLogQueueSize,
+		TaskTimeoutSeconds: defaultConversationLogTaskTimeoutSeconds,
+		OverflowPolicy:     defaultConversationLogOverflowPolicy,
+		StoreRequest:       true,
+		StoreResponse:      true,
+		MaxRequestBytes:    defaultConversationLogMaxRequestBytes,
+		MaxResponseBytes:   defaultConversationLogMaxResponseBytes,
 	}
 }
 

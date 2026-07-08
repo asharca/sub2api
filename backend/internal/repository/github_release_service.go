@@ -63,11 +63,11 @@ func NewGitHubReleaseClient(proxyURL string, allowDirectOnProxyError bool) servi
 	}
 }
 
-func (c *githubReleaseClientError) FetchLatestRelease(ctx context.Context, repo string) (*service.GitHubRelease, error) {
+func (c *githubReleaseClientError) FetchLatestRelease(ctx context.Context, repo, branch string) (*service.GitHubRelease, error) {
 	return nil, c.err
 }
 
-func (c *githubReleaseClientError) FetchRecentReleases(ctx context.Context, repo string, perPage int) ([]*service.GitHubRelease, error) {
+func (c *githubReleaseClientError) FetchRecentReleases(ctx context.Context, repo, branch string, perPage int) ([]*service.GitHubRelease, error) {
 	return nil, c.err
 }
 
@@ -79,7 +79,14 @@ func (c *githubReleaseClientError) FetchChecksumFile(ctx context.Context, url st
 	return nil, c.err
 }
 
-func (c *githubReleaseClient) FetchLatestRelease(ctx context.Context, repo string) (*service.GitHubRelease, error) {
+func (c *githubReleaseClient) FetchLatestRelease(ctx context.Context, repo, branch string) (*service.GitHubRelease, error) {
+	if strings.TrimSpace(branch) == "" {
+		return c.fetchLatestRelease(ctx, repo)
+	}
+	return c.fetchLatestReleaseForBranch(ctx, repo, branch)
+}
+
+func (c *githubReleaseClient) fetchLatestRelease(ctx context.Context, repo string) (*service.GitHubRelease, error) {
 	url := fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", repo)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
@@ -107,7 +114,7 @@ func (c *githubReleaseClient) FetchLatestRelease(ctx context.Context, repo strin
 	return &release, nil
 }
 
-func (c *githubReleaseClient) FetchRecentReleases(ctx context.Context, repo string, perPage int) ([]*service.GitHubRelease, error) {
+func (c *githubReleaseClient) FetchRecentReleases(ctx context.Context, repo, branch string, perPage int) ([]*service.GitHubRelease, error) {
 	if perPage <= 0 {
 		perPage = 10
 	}
@@ -116,6 +123,42 @@ func (c *githubReleaseClient) FetchRecentReleases(ctx context.Context, repo stri
 	}
 	url := fmt.Sprintf("https://api.github.com/repos/%s/releases?per_page=%d", repo, perPage)
 
+	releases, err := c.fetchReleases(ctx, url)
+	if err != nil {
+		return nil, err
+	}
+
+	if strings.TrimSpace(branch) == "" {
+		return releases, nil
+	}
+
+	filtered := make([]*service.GitHubRelease, 0, len(releases))
+	for _, release := range releases {
+		if isAsharcaBranchRelease(release, branch) {
+			filtered = append(filtered, release)
+		}
+	}
+	return filtered, nil
+}
+
+func (c *githubReleaseClient) fetchLatestReleaseForBranch(ctx context.Context, repo, branch string) (*service.GitHubRelease, error) {
+	url := fmt.Sprintf("https://api.github.com/repos/%s/releases?per_page=50", repo)
+
+	releases, err := c.fetchReleases(ctx, url)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, release := range releases {
+		if isAsharcaBranchRelease(release, branch) {
+			return release, nil
+		}
+	}
+
+	return nil, fmt.Errorf("no asharca release found for branch %q", branch)
+}
+
+func (c *githubReleaseClient) fetchReleases(ctx context.Context, url string) ([]*service.GitHubRelease, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
@@ -139,6 +182,16 @@ func (c *githubReleaseClient) FetchRecentReleases(ctx context.Context, repo stri
 	}
 
 	return releases, nil
+}
+
+func isAsharcaBranchRelease(release *service.GitHubRelease, branch string) bool {
+	if release == nil || release.Draft || release.Prerelease {
+		return false
+	}
+	if release.TargetCommitish != strings.TrimSpace(branch) {
+		return false
+	}
+	return strings.Contains(release.TagName, "-asharca.")
 }
 
 func (c *githubReleaseClient) DownloadFile(ctx context.Context, url, dest string, maxSize int64) error {

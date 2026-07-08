@@ -80,6 +80,9 @@ func RegisterAdminRoutes(
 		// 使用记录管理
 		registerUsageRoutes(admin, h)
 
+		// 对话记录管理
+		registerConversationLogRoutes(admin, h)
+
 		// 用户属性管理
 		registerUserAttributeRoutes(admin, h)
 
@@ -477,6 +480,9 @@ func registerSettingsRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		// 429默认回避配置
 		adminSettings.GET("/rate-limit-429-cooldown", h.Admin.Setting.GetRateLimit429CooldownSettings)
 		adminSettings.PUT("/rate-limit-429-cooldown", h.Admin.Setting.UpdateRateLimit429CooldownSettings)
+		// 用户对话记录配置
+		adminSettings.GET("/conversation-log", h.Admin.Setting.GetConversationLogSettings)
+		adminSettings.PUT("/conversation-log", h.Admin.Setting.UpdateConversationLogSettings)
 		// 流超时处理配置
 		adminSettings.GET("/stream-timeout", h.Admin.Setting.GetStreamTimeoutSettings)
 		adminSettings.PUT("/stream-timeout", h.Admin.Setting.UpdateStreamTimeoutSettings)
@@ -585,6 +591,14 @@ func registerUsageRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		usage.GET("/cleanup-tasks", h.Admin.Usage.ListCleanupTasks)
 		usage.POST("/cleanup-tasks", h.Admin.Usage.CreateCleanupTask)
 		usage.POST("/cleanup-tasks/:id/cancel", h.Admin.Usage.CancelCleanupTask)
+	}
+}
+
+func registerConversationLogRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
+	logs := admin.Group("/conversation-logs")
+	{
+		logs.GET("", h.Admin.ConversationLog.List)
+		logs.GET("/:id", h.Admin.ConversationLog.GetByID)
 	}
 }
 

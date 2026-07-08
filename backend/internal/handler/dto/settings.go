@@ -383,6 +383,19 @@ type RateLimit429CooldownSettings struct {
 	CooldownSeconds int  `json:"cooldown_seconds"`
 }
 
+// ConversationLogSettings 用户对话异步记录配置 DTO
+type ConversationLogSettings struct {
+	Enabled            bool   `json:"enabled"`
+	WorkerCount        int    `json:"worker_count"`
+	QueueSize          int    `json:"queue_size"`
+	TaskTimeoutSeconds int    `json:"task_timeout_seconds"`
+	OverflowPolicy     string `json:"overflow_policy"`
+	StoreRequest       bool   `json:"store_request"`
+	StoreResponse      bool   `json:"store_response"`
+	MaxRequestBytes    int    `json:"max_request_bytes"`
+	MaxResponseBytes   int    `json:"max_response_bytes"`
+}
+
 // StreamTimeoutSettings 流超时处理配置 DTO
 type StreamTimeoutSettings struct {
 	Enabled                bool   `json:"enabled"`
