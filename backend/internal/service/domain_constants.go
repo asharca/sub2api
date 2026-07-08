@@ -394,6 +394,9 @@ const (
 	// SettingKeyRateLimit429CooldownSettings stores JSON config for 429 fallback cooldown handling.
 	SettingKeyRateLimit429CooldownSettings = "rate_limit_429_cooldown_settings"
 
+	// SettingKeyConversationLogSettings stores JSON config for async conversation logging.
+	SettingKeyConversationLogSettings = "conversation_log_settings"
+
 	// =========================
 	// Stream Timeout Handling
 	// =========================

@@ -172,14 +172,33 @@ jobs:
         id: lowercase
         run: echo "owner=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
 
+      - name: Resolve release config
+        id: release_config
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG_NAME=${{ github.event.inputs.tag }}
+          else
+            TAG_NAME=${GITHUB_REF#refs/tags/}
+          fi
+
+          CONFIG_ARG=""
+          if [[ "$TAG_NAME" == *"-asharca."* ]]; then
+            CONFIG_ARG="--config=.goreleaser.feature.yaml"
+          elif [ "${{ env.SIMPLE_RELEASE }}" = "true" ]; then
+            CONFIG_ARG="--config=.goreleaser.simple.yaml"
+          fi
+          echo "config_arg=${CONFIG_ARG}" >> "$GITHUB_OUTPUT"
+
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v7
         with:
           version: '~> v2'
-          args: release --clean --skip=validate ${{ env.SIMPLE_RELEASE == 'true' && '--config=.goreleaser.simple.yaml' || '' }}
+          args: release --clean --skip=validate ${{ steps.release_config.outputs.config_arg }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG_MESSAGE: ${{ steps.tag_message.outputs.message }}
+          GITHUB_RELEASE_TARGET_COMMITISH: feat/conversation-storage
           GITHUB_REPO_OWNER: ${{ github.repository_owner }}
           GITHUB_REPO_OWNER_LOWER: ${{ steps.lowercase.outputs.owner }}
           GITHUB_REPO_NAME: ${{ github.event.repository.name }}
@@ -283,13 +302,20 @@ jobs:
           ref: ${{ github.event.repository.default_branch }}
 
       - name: Sync VERSION file to released tag
+        shell: bash
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            VERSION=${{ github.event.inputs.tag }}
-            VERSION=${VERSION#v}
+            TAG_NAME=${{ github.event.inputs.tag }}
           else
-            VERSION=${GITHUB_REF#refs/tags/v}
+            TAG_NAME=${GITHUB_REF#refs/tags/}
           fi
+
+          if [[ "$TAG_NAME" == *"-asharca."* ]]; then
+            echo "Feature release ${TAG_NAME}; keeping default branch aligned with upstream."
+            exit 0
+          fi
+
+          VERSION=${TAG_NAME#v}
 
           CURRENT_VERSION=$(tr -d '\r\n' < backend/cmd/server/VERSION || true)
           if [ "$CURRENT_VERSION" = "$VERSION" ]; then

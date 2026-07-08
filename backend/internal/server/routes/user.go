@@ -99,6 +99,13 @@ func RegisterUserRoutes(
 			usage.POST("/dashboard/api-keys-usage", h.Usage.DashboardAPIKeysUsage)
 		}
 
+		// 对话记录（普通用户只能查看自己的记录）
+		conversationLogs := authenticated.Group("/conversation-logs")
+		{
+			conversationLogs.GET("", h.ConversationLog.ListMine)
+			conversationLogs.GET("/:id", h.ConversationLog.GetMineByID)
+		}
+
 		// 公告（用户可见）
 		announcements := authenticated.Group("/announcements")
 		{

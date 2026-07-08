@@ -33,11 +33,11 @@ type updateServiceGitHubClientStub struct {
 	recentErr      error
 }
 
-func (s *updateServiceGitHubClientStub) FetchLatestRelease(context.Context, string) (*GitHubRelease, error) {
+func (s *updateServiceGitHubClientStub) FetchLatestRelease(context.Context, string, string) (*GitHubRelease, error) {
 	return s.release, nil
 }
 
-func (s *updateServiceGitHubClientStub) FetchRecentReleases(context.Context, string, int) ([]*GitHubRelease, error) {
+func (s *updateServiceGitHubClientStub) FetchRecentReleases(context.Context, string, string, int) ([]*GitHubRelease, error) {
 	return s.recentReleases, s.recentErr
 }
 
@@ -184,4 +184,72 @@ func TestUpdateServiceRollbackToVersionAcceptsVPrefix(t *testing.T) {
 	require.Error(t, err)
 	require.NotErrorIs(t, err, ErrRollbackVersionNotAllowed)
 	require.Contains(t, err.Error(), "no compatible release found")
+}
+
+func TestUpdateServiceCheckUpdateUsesAsharcaTagRelease(t *testing.T) {
+	cache := &updateServiceCacheStub{}
+	svc := NewUpdateService(
+		cache,
+		&updateServiceGitHubClientStub{
+			release: &GitHubRelease{
+				TagName: "v0.1.144-asharca.1",
+				Name:    "v0.1.144-asharca.1",
+			},
+		},
+		"0.1.144",
+		"release",
+	)
+
+	info, err := svc.CheckUpdate(context.Background(), true)
+
+	require.NoError(t, err)
+	require.Equal(t, "0.1.144", info.CurrentVersion)
+	require.Equal(t, "0.1.144", info.CurrentDisplayVersion)
+	require.Equal(t, "0.1.144-asharca.1", info.LatestVersion)
+	require.Equal(t, "0.1.144-asharca.1", info.LatestDisplayVersion)
+	require.True(t, info.HasUpdate)
+}
+
+func TestUpdateServiceCheckUpdateTreatsSameAsharcaTagAsCurrent(t *testing.T) {
+	svc := NewUpdateService(
+		&updateServiceCacheStub{},
+		&updateServiceGitHubClientStub{
+			release: &GitHubRelease{
+				TagName: "v0.1.144-asharca.1",
+				Name:    "v0.1.144-asharca.1",
+			},
+		},
+		"0.1.144-asharca.1",
+		"release",
+	)
+
+	info, err := svc.CheckUpdate(context.Background(), true)
+
+	require.NoError(t, err)
+	require.False(t, info.HasUpdate)
+}
+
+func TestUpdateServiceCheckUpdateDetectsNextAsharcaRevision(t *testing.T) {
+	cache := &updateServiceCacheStub{}
+	svc := NewUpdateService(
+		cache,
+		&updateServiceGitHubClientStub{
+			release: &GitHubRelease{
+				TagName: "v0.1.144-asharca.2",
+				Name:    "v0.1.144-asharca.2",
+			},
+		},
+		"0.1.144-asharca.1",
+		"release",
+	)
+
+	_, err := svc.CheckUpdate(context.Background(), true)
+	require.NoError(t, err)
+
+	cached, err := svc.CheckUpdate(context.Background(), false)
+
+	require.NoError(t, err)
+	require.True(t, cached.Cached)
+	require.True(t, cached.HasUpdate)
+	require.Equal(t, "0.1.144-asharca.2", cached.LatestDisplayVersion)
 }

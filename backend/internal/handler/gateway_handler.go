@@ -48,6 +48,7 @@ type GatewayHandler struct {
 	usageService              *service.UsageService
 	apiKeyService             *service.APIKeyService
 	usageRecordWorkerPool     *service.UsageRecordWorkerPool
+	conversationLogService    *service.ConversationLogService
 	errorPassthroughService   *service.ErrorPassthroughService
 	contentModerationService  *service.ContentModerationService
 	securityAuditCoordinator  *securityaudit.Coordinator
@@ -71,6 +72,7 @@ func NewGatewayHandler(
 	usageService *service.UsageService,
 	apiKeyService *service.APIKeyService,
 	usageRecordWorkerPool *service.UsageRecordWorkerPool,
+	conversationLogService *service.ConversationLogService,
 	errorPassthroughService *service.ErrorPassthroughService,
 	contentModerationService *service.ContentModerationService,
 	userMsgQueueService *service.UserMessageQueueService,
@@ -106,6 +108,7 @@ func NewGatewayHandler(
 		usageService:              usageService,
 		apiKeyService:             apiKeyService,
 		usageRecordWorkerPool:     usageRecordWorkerPool,
+		conversationLogService:    conversationLogService,
 		errorPassthroughService:   errorPassthroughService,
 		contentModerationService:  contentModerationService,
 		concurrencyHelper:         NewConcurrencyHelper(concurrencyService, SSEPingFormatClaude, pingInterval),
@@ -156,6 +159,8 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Request body is empty")
 		return
 	}
+	conversationCapture := startConversationResponseCapture(c, h.conversationLogService)
+	defer conversationCapture.Restore(c)
 
 	setOpsRequestContext(c, "", false)
 
@@ -555,6 +560,16 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 					).Error("gateway.record_usage_failed", zap.Error(err))
 				}
 			})
+			submitAnthropicConversationLog(c.Request.Context(), h.conversationLogService, conversationLogBaseInput{
+				Body:             body,
+				Capture:          conversationCapture,
+				APIKey:           apiKey,
+				Account:          account,
+				InboundEndpoint:  inboundEndpoint,
+				UpstreamEndpoint: upstreamEndpoint,
+				StatusCode:       conversationLogStatus(c),
+				RequestHash:      requestPayloadHash,
+			}, result)
 			return
 		}
 	}
@@ -987,6 +1002,16 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 					).Error("gateway.record_usage_failed", zap.Error(err))
 				}
 			})
+			submitAnthropicConversationLog(c.Request.Context(), h.conversationLogService, conversationLogBaseInput{
+				Body:             body,
+				Capture:          conversationCapture,
+				APIKey:           currentAPIKey,
+				Account:          account,
+				InboundEndpoint:  inboundEndpoint,
+				UpstreamEndpoint: upstreamEndpoint,
+				StatusCode:       conversationLogStatus(c),
+				RequestHash:      requestPayloadHash,
+			}, result)
 			return
 		}
 		if !retryWithFallback {

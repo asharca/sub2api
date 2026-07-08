@@ -107,6 +107,11 @@ export default {
     markReadHint: '点击"已读"标记此公告'
   },
 
+  conversationLogs: {
+    title: '对话记录',
+    description: '查看你自己的请求与 AI 响应记录'
+  },
+
   // User Subscriptions Page
   userSubscriptions: {
     title: '我的订阅',

@@ -987,6 +987,9 @@ type GatewayConfig struct {
 	// UsageRecord: 使用量记录异步队列配置（有界队列 + 固定 worker）
 	UsageRecord GatewayUsageRecordConfig `mapstructure:"usage_record"`
 
+	// ConversationLog: 用户输入与模型输出异步记录配置（默认关闭）
+	ConversationLog GatewayConversationLogConfig `mapstructure:"conversation_log"`
+
 	// UserGroupRateCacheTTLSeconds: 用户分组倍率热路径缓存 TTL（秒）
 	UserGroupRateCacheTTLSeconds int `mapstructure:"user_group_rate_cache_ttl_seconds"`
 	// ModelsListCacheTTLSeconds: /v1/models 模型列表短缓存 TTL（秒）
@@ -1240,6 +1243,20 @@ type GatewayUsageRecordConfig struct {
 	AutoScaleCheckIntervalSeconds int `mapstructure:"auto_scale_check_interval_seconds"`
 	// AutoScaleCooldownSeconds: 自动扩缩容冷却时间（秒）
 	AutoScaleCooldownSeconds int `mapstructure:"auto_scale_cooldown_seconds"`
+}
+
+// GatewayConversationLogConfig 用户对话异步记录配置。
+// 该功能默认关闭；开启后在请求热路径捕获完整请求/响应，写库走独立 worker 池。
+type GatewayConversationLogConfig struct {
+	Enabled            bool   `mapstructure:"enabled"`
+	WorkerCount        int    `mapstructure:"worker_count"`
+	QueueSize          int    `mapstructure:"queue_size"`
+	TaskTimeoutSeconds int    `mapstructure:"task_timeout_seconds"`
+	OverflowPolicy     string `mapstructure:"overflow_policy"`
+	StoreRequest       bool   `mapstructure:"store_request"`
+	StoreResponse      bool   `mapstructure:"store_response"`
+	MaxRequestBytes    int    `mapstructure:"max_request_bytes"`
+	MaxResponseBytes   int    `mapstructure:"max_response_bytes"`
 }
 
 // TLSFingerprintConfig TLS指纹伪装配置
@@ -2300,6 +2317,15 @@ func setDefaults() {
 	viper.SetDefault("gateway.usage_record.auto_scale_down_step", 16)
 	viper.SetDefault("gateway.usage_record.auto_scale_check_interval_seconds", 3)
 	viper.SetDefault("gateway.usage_record.auto_scale_cooldown_seconds", 10)
+	viper.SetDefault("gateway.conversation_log.enabled", false)
+	viper.SetDefault("gateway.conversation_log.worker_count", 4)
+	viper.SetDefault("gateway.conversation_log.queue_size", 4096)
+	viper.SetDefault("gateway.conversation_log.task_timeout_seconds", 5)
+	viper.SetDefault("gateway.conversation_log.overflow_policy", UsageRecordOverflowPolicySync)
+	viper.SetDefault("gateway.conversation_log.store_request", true)
+	viper.SetDefault("gateway.conversation_log.store_response", true)
+	viper.SetDefault("gateway.conversation_log.max_request_bytes", 0)
+	viper.SetDefault("gateway.conversation_log.max_response_bytes", 0)
 	viper.SetDefault("gateway.user_group_rate_cache_ttl_seconds", 30)
 	viper.SetDefault("gateway.models_list_cache_ttl_seconds", 15)
 	// TLS指纹伪装配置（默认关闭，需要账号级别单独启用）
@@ -3317,6 +3343,26 @@ func (c *Config) Validate() error {
 		}
 		if c.Gateway.UsageRecord.AutoScaleCooldownSeconds < 0 {
 			return fmt.Errorf("gateway.usage_record.auto_scale_cooldown_seconds must be non-negative")
+		}
+	}
+	if c.Gateway.ConversationLog.Enabled {
+		if c.Gateway.ConversationLog.WorkerCount <= 0 {
+			return fmt.Errorf("gateway.conversation_log.worker_count must be positive")
+		}
+		if c.Gateway.ConversationLog.QueueSize <= 0 {
+			return fmt.Errorf("gateway.conversation_log.queue_size must be positive")
+		}
+		if c.Gateway.ConversationLog.TaskTimeoutSeconds <= 0 {
+			return fmt.Errorf("gateway.conversation_log.task_timeout_seconds must be positive")
+		}
+		if strings.ToLower(strings.TrimSpace(c.Gateway.ConversationLog.OverflowPolicy)) != UsageRecordOverflowPolicySync {
+			return fmt.Errorf("gateway.conversation_log.overflow_policy must be: %s", UsageRecordOverflowPolicySync)
+		}
+		if c.Gateway.ConversationLog.MaxRequestBytes < 0 {
+			return fmt.Errorf("gateway.conversation_log.max_request_bytes must be non-negative")
+		}
+		if c.Gateway.ConversationLog.MaxResponseBytes < 0 {
+			return fmt.Errorf("gateway.conversation_log.max_response_bytes must be non-negative")
 		}
 	}
 	if c.Gateway.UserGroupRateCacheTTLSeconds <= 0 {

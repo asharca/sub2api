@@ -18,6 +18,7 @@ import (
 // BuildInfo contains build information
 type BuildInfo struct {
 	Version   string
+	Commit    string
 	BuildType string
 }
 
@@ -776,6 +777,7 @@ var ProviderSet = wire.NewSet(
 	NewChannelService,
 	NewModelPricingResolver,
 	NewContentModerationService,
+	ProvideConversationLogService,
 	NewAffiliateService,
 	ProvidePaymentConfigService,
 	ProvidePaymentService,

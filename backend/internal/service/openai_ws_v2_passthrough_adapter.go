@@ -678,6 +678,13 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 		return NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, blocked.Message, blocked)
 	}
 	firstClientMessage = updatedFirst
+	if hooks != nil && hooks.CaptureRequest != nil {
+		captureModel := initialRequestModel
+		if captureModel == "" {
+			captureModel = requestModel
+		}
+		hooks.CaptureRequest(1, firstClientMessage, captureModel)
+	}
 
 	// 在 policy filter 之后再提取 service_tier / reasoning_effort 用于
 	// usage 上报：filter
@@ -828,6 +835,16 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 	}
 
 	completedTurns := atomic.Int32{}
+	captureResponseFrame := func(payload []byte) {
+		if hooks == nil || hooks.CaptureResponse == nil {
+			return
+		}
+		turnNo := int(completedTurns.Load()) + 1
+		if turnNo < 1 {
+			turnNo = 1
+		}
+		hooks.CaptureResponse(turnNo, payload)
+	}
 	turnLifecycle := newOpenAIWSPassthroughTurnLifecycle(true)
 	clientFrameConn := &openAIWSClientFrameConn{
 		conn:                 clientConn,
@@ -918,6 +935,17 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 			//     覆盖（Store(nil)），因为 OpenAI 上游对该帧实际不传
 			//     service_tier 时按 default 处理，billing 应如实反映。
 			if policyErr == nil && blocked == nil && isResponseCreate {
+				if hooks != nil && hooks.CaptureRequest != nil {
+					turnNo := int(completedTurns.Load()) + 1
+					if turnNo < 2 {
+						turnNo = 2
+					}
+					captureModel := requestModelForThisFrame
+					if captureModel == "" {
+						captureModel = model
+					}
+					hooks.CaptureRequest(turnNo, out, captureModel)
+				}
 				usageMeta.updateFromResponseCreate(out, model, requestModelForThisFrame)
 				acceptedTurn = true
 			}
@@ -1057,10 +1085,12 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 					s.handleOpenAIWSErrorEventTransientFailure(ctx, account, capturedSessionModel, handshakeHeaders, payload)
 				}
 				if wroteDownstream || eventType != "error" {
+					captureResponseFrame(payload)
 					return nil
 				}
 				errCodeRaw, errTypeRaw, errMsgRaw := parseOpenAIWSErrorEventFields(payload)
 				if !isOpenAIWSRateLimitError(errCodeRaw, errTypeRaw, errMsgRaw) {
+					captureResponseFrame(payload)
 					return nil
 				}
 				s.persistOpenAIWSRateLimitSignal(ctx, account, handshakeHeaders, payload, errCodeRaw, errTypeRaw, errMsgRaw)
