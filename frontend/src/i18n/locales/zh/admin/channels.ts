@@ -642,6 +642,7 @@ export default {
       },
       form: {
         user: '用户',
+        users: '选择用户',
         group: '订阅分组',
         validityDays: '有效期（天）',
         adjustDays: '调整天数'
@@ -650,6 +651,29 @@ export default {
       selectGroup: '选择订阅分组',
       groupHint: '仅显示订阅计费类型的分组',
       validityHint: '订阅的有效天数',
+      bulkAssign: {
+        title: '批量分配订阅',
+        selectionHint: '可跨页勾选；“选择本页全部”只作用于当前显示的用户。',
+        selectedCount: '已选 {count} 人',
+        clearSelection: '清空选择',
+        searchPlaceholder: '按邮箱、用户名、备注或 API Key 搜索',
+        pageSummary: '当前显示 {start}–{end}，共 {total} 人',
+        selectCurrentPage: '选择本页全部',
+        unselectCurrentPage: '取消选择本页',
+        selectUser: '选择用户 {email}',
+        previousPage: '上一页',
+        nextPage: '下一页',
+        pageNumber: '第 {page} / {pages} 页',
+        noUsers: '没有匹配的用户',
+        retryLoad: '重新加载',
+        failedToLoadUsers: '加载用户列表失败',
+        selectionLimit: '一次最多可分配 {max} 个用户，请减少选择数量。',
+        submit: '分配给 {count} 人',
+        success: '已处理 {count} 人：新建 {created} 个，沿用或续期 {reused} 个',
+        partialWarning: '批量分配部分完成：成功 {success} 人，失败 {failed} 人；已保留失败用户供重试。',
+        allFailed: '批量分配失败，共 {count} 人未处理。',
+        partialResult: '成功 {success} 人（新建 {created}、沿用或续期 {reused}），失败 {failed} 人'
+      },
       adjustingFor: '为以下用户调整订阅',
       currentExpiration: '当前到期时间',
       adjustDaysPlaceholder: '正数延长，负数缩短',
@@ -697,8 +721,8 @@ export default {
         step2: {
           title: '分配订阅给用户',
           line1: '点击本页右上角「分配订阅」按钮',
-          line2: '在弹窗中搜索用户邮箱并选择目标用户',
-          line3: '选择订阅分组、设置有效期天数，点击「分配」'
+          line2: '在弹窗中搜索、逐个勾选或选择本页全部用户',
+          line3: '选择订阅分组、设置有效期天数，完成批量分配'
         },
         step3: {
           title: '管理已有订阅'

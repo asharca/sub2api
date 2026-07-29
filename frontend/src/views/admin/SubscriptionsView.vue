@@ -439,139 +439,12 @@
       </template>
     </TablePageLayout>
 
-    <!-- Assign Subscription Modal -->
-    <BaseDialog
+    <BulkAssignSubscriptionModal
       :show="showAssignModal"
-      :title="t('admin.subscriptions.assignSubscription')"
-      width="normal"
-      @close="closeAssignModal"
-    >
-      <form
-        id="assign-subscription-form"
-        @submit.prevent="handleAssignSubscription"
-        class="space-y-5"
-      >
-        <div>
-          <label class="input-label">{{ t('admin.subscriptions.form.user') }}</label>
-          <div class="relative" data-assign-user-search>
-            <input
-              v-model="userSearchKeyword"
-              type="text"
-              class="input pr-8"
-              :placeholder="t('admin.usage.searchUserPlaceholder')"
-              @input="debounceSearchUsers"
-              @focus="showUserDropdown = true"
-            />
-            <button
-              v-if="selectedUser"
-              @click="clearUserSelection"
-              type="button"
-              class="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-            >
-              <Icon name="x" size="sm" :stroke-width="2" />
-            </button>
-            <!-- User Dropdown -->
-            <div
-              v-if="showUserDropdown && (userSearchResults.length > 0 || userSearchKeyword)"
-              class="absolute z-50 mt-1 max-h-60 w-full overflow-auto rounded-lg border border-gray-200 bg-white shadow-lg dark:border-dark-700 dark:bg-dark-800"
-            >
-              <div
-                v-if="userSearchLoading"
-                class="px-4 py-3 text-sm text-gray-500 dark:text-gray-400"
-              >
-                {{ t('common.loading') }}
-              </div>
-              <div
-                v-else-if="userSearchResults.length === 0 && userSearchKeyword"
-                class="px-4 py-3 text-sm text-gray-500 dark:text-gray-400"
-              >
-                {{ t('common.noOptionsFound') }}
-              </div>
-              <button
-                v-for="user in userSearchResults"
-                :key="user.id"
-                type="button"
-                @click="selectUser(user)"
-                class="w-full px-4 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-dark-700"
-              >
-                <span class="font-medium text-gray-900 dark:text-white">{{ user.email }}</span>
-                <span class="ml-2 text-gray-500 dark:text-gray-400">#{{ user.id }}</span>
-              </button>
-            </div>
-          </div>
-        </div>
-        <div>
-          <label class="input-label">{{ t('admin.subscriptions.form.group') }}</label>
-          <Select
-            v-model="assignForm.group_id"
-            :options="subscriptionGroupOptions"
-            :placeholder="t('admin.subscriptions.selectGroup')"
-          >
-            <template #selected="{ option }">
-              <GroupBadge
-                v-if="option"
-                :name="(option as unknown as GroupOption).label"
-                :platform="(option as unknown as GroupOption).platform"
-                :subscription-type="(option as unknown as GroupOption).subscriptionType"
-                :rate-multiplier="(option as unknown as GroupOption).rate"
-              />
-              <span v-else class="text-gray-400">{{ t('admin.subscriptions.selectGroup') }}</span>
-            </template>
-            <template #option="{ option, selected }">
-              <GroupOptionItem
-                :name="(option as unknown as GroupOption).label"
-                :platform="(option as unknown as GroupOption).platform"
-                :subscription-type="(option as unknown as GroupOption).subscriptionType"
-                :rate-multiplier="(option as unknown as GroupOption).rate"
-                :description="(option as unknown as GroupOption).description"
-                :selected="selected"
-              />
-            </template>
-          </Select>
-          <p class="input-hint">{{ t('admin.subscriptions.groupHint') }}</p>
-        </div>
-        <div>
-          <label class="input-label">{{ t('admin.subscriptions.form.validityDays') }}</label>
-          <input v-model.number="assignForm.validity_days" type="number" min="1" class="input" />
-          <p class="input-hint">{{ t('admin.subscriptions.validityHint') }}</p>
-        </div>
-      </form>
-      <template #footer>
-        <div class="flex justify-end gap-3">
-          <button @click="closeAssignModal" type="button" class="btn btn-secondary">
-            {{ t('common.cancel') }}
-          </button>
-          <button
-            type="submit"
-            form="assign-subscription-form"
-            :disabled="submitting"
-            class="btn btn-primary"
-          >
-            <svg
-              v-if="submitting"
-              class="-ml-1 mr-2 h-4 w-4 animate-spin"
-              fill="none"
-              viewBox="0 0 24 24"
-            >
-              <circle
-                class="opacity-25"
-                cx="12"
-                cy="12"
-                r="10"
-                stroke="currentColor"
-                stroke-width="4"
-              ></circle>
-              <path
-                class="opacity-75"
-                fill="currentColor"
-                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-              ></path>
-            </svg>
-            {{ submitting ? t('admin.subscriptions.assigning') : t('admin.subscriptions.assign') }}
-          </button>
-        </div>
-      </template>
-    </BaseDialog>
+      :groups="groups"
+      @close="showAssignModal = false"
+      @success="handleBulkAssignSuccess"
+    />
 
     <!-- Adjust Subscription Modal -->
     <BaseDialog
@@ -761,7 +634,7 @@ import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { adminAPI } from '@/api/admin'
-import type { UserSubscription, Group, GroupPlatform, SubscriptionType } from '@/types'
+import type { UserSubscription, AdminGroup } from '@/types'
 import type { SimpleUser } from '@/api/admin/usage'
 import type { Column } from '@/components/common/types'
 import { formatDateTimeToMinute } from '@/utils/format'
@@ -775,21 +648,12 @@ import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import Select from '@/components/common/Select.vue'
 import GroupBadge from '@/components/common/GroupBadge.vue'
-import GroupOptionItem from '@/components/common/GroupOptionItem.vue'
 import Icon from '@/components/icons/Icon.vue'
+import BulkAssignSubscriptionModal from '@/components/admin/subscription/BulkAssignSubscriptionModal.vue'
 import { getRemainingDurationParts, isOneTimeDailyQuota, type RemainingDurationParts } from '@/utils/subscriptionQuota'
 
 const { t } = useI18n()
 const appStore = useAppStore()
-
-interface GroupOption {
-  value: number
-  label: string
-  description: string | null
-  platform: GroupPlatform
-  subscriptionType: SubscriptionType
-  rate: number
-}
 
 // Guide modal state
 const showGuideModal = ref(false)
@@ -916,7 +780,7 @@ const statusOptions = computed(() => [
 ])
 
 const subscriptions = ref<UserSubscription[]>([])
-const groups = ref<Group[]>([])
+const groups = ref<AdminGroup[]>([])
 const loading = ref(false)
 let abortController: AbortController | null = null
 
@@ -927,14 +791,6 @@ const filterUserLoading = ref(false)
 const showFilterUserDropdown = ref(false)
 const selectedFilterUser = ref<SimpleUser | null>(null)
 let filterUserSearchTimeout: ReturnType<typeof setTimeout> | null = null
-
-// User search state
-const userSearchKeyword = ref('')
-const userSearchResults = ref<SimpleUser[]>([])
-const userSearchLoading = ref(false)
-const showUserDropdown = ref(false)
-const selectedUser = ref<SimpleUser | null>(null)
-let userSearchTimeout: ReturnType<typeof setTimeout> | null = null
 
 const filters = reactive({
   status: 'active',
@@ -968,12 +824,6 @@ const extendingSubscription = ref<UserSubscription | null>(null)
 const revokingSubscription = ref<UserSubscription | null>(null)
 const restoringSubscription = ref<UserSubscription | null>(null)
 
-const assignForm = reactive({
-  user_id: null as number | null,
-  group_id: null as number | null,
-  validity_days: 30
-})
-
 const extendForm = reactive({
   days: 30
 })
@@ -991,20 +841,6 @@ const platformFilterOptions = computed(() => [
   { value: 'gemini', label: 'Gemini' },
   { value: 'antigravity', label: 'Antigravity' }
 ])
-
-// Group options for assign (only subscription type groups)
-const subscriptionGroupOptions = computed(() =>
-  groups.value
-    .filter((g) => g.subscription_type === 'subscription' && g.status === 'active')
-    .map((g) => ({
-      value: g.id,
-      label: g.name,
-      description: g.description,
-      platform: g.platform,
-      subscriptionType: g.subscription_type,
-      rate: g.rate_multiplier
-    }))
-)
 
 const applyFilters = () => {
   pagination.page = 1
@@ -1113,53 +949,6 @@ const clearFilterUser = () => {
   applyFilters()
 }
 
-// User search with debounce
-const debounceSearchUsers = () => {
-  if (userSearchTimeout) {
-    clearTimeout(userSearchTimeout)
-  }
-  userSearchTimeout = setTimeout(searchUsers, 300)
-}
-
-const searchUsers = async () => {
-  const keyword = userSearchKeyword.value.trim()
-
-  // Clear selection if user modified the search keyword
-  if (selectedUser.value && keyword !== selectedUser.value.email) {
-    selectedUser.value = null
-    assignForm.user_id = null
-  }
-
-  if (!keyword) {
-    userSearchResults.value = []
-    return
-  }
-
-  userSearchLoading.value = true
-  try {
-    userSearchResults.value = await adminAPI.usage.searchUsers(keyword)
-  } catch (error) {
-    console.error('Failed to search users:', error)
-    userSearchResults.value = []
-  } finally {
-    userSearchLoading.value = false
-  }
-}
-
-const selectUser = (user: SimpleUser) => {
-  selectedUser.value = user
-  userSearchKeyword.value = user.email
-  showUserDropdown.value = false
-  assignForm.user_id = user.id
-}
-
-const clearUserSelection = () => {
-  selectedUser.value = null
-  userSearchKeyword.value = ''
-  userSearchResults.value = []
-  assignForm.user_id = null
-}
-
 const handlePageChange = (page: number) => {
   pagination.page = page
   loadSubscriptions()
@@ -1178,48 +967,8 @@ const handleSort = (key: string, order: 'asc' | 'desc') => {
   loadSubscriptions()
 }
 
-const closeAssignModal = () => {
-  showAssignModal.value = false
-  assignForm.user_id = null
-  assignForm.group_id = null
-  assignForm.validity_days = 30
-  // Clear user search state
-  selectedUser.value = null
-  userSearchKeyword.value = ''
-  userSearchResults.value = []
-  showUserDropdown.value = false
-}
-
-const handleAssignSubscription = async () => {
-  if (!assignForm.user_id) {
-    appStore.showError(t('admin.subscriptions.pleaseSelectUser'))
-    return
-  }
-  if (!assignForm.group_id) {
-    appStore.showError(t('admin.subscriptions.pleaseSelectGroup'))
-    return
-  }
-  if (!assignForm.validity_days || assignForm.validity_days < 1) {
-    appStore.showError(t('admin.subscriptions.validityDaysRequired'))
-    return
-  }
-
-  submitting.value = true
-  try {
-    await adminAPI.subscriptions.assign({
-      user_id: assignForm.user_id,
-      group_id: assignForm.group_id,
-      validity_days: assignForm.validity_days
-    })
-    appStore.showSuccess(t('admin.subscriptions.subscriptionAssigned'))
-    closeAssignModal()
-    loadSubscriptions()
-  } catch (error: any) {
-    appStore.showError(error.response?.data?.detail || t('admin.subscriptions.failedToAssign'))
-    console.error('Error assigning subscription:', error)
-  } finally {
-    submitting.value = false
-  }
+const handleBulkAssignSuccess = () => {
+  void loadSubscriptions()
 }
 
 const handleExtend = (subscription: UserSubscription) => {
@@ -1417,7 +1166,6 @@ const formatResetTime = (windowStart: string | null, period: 'daily' | 'weekly' 
 // Handle click outside to close dropdowns
 const handleClickOutside = (event: MouseEvent) => {
   const target = event.target as HTMLElement
-  if (!target.closest('[data-assign-user-search]')) showUserDropdown.value = false
   if (!target.closest('[data-filter-user-search]')) showFilterUserDropdown.value = false
   if (columnDropdownRef.value && !columnDropdownRef.value.contains(target)) {
     showColumnDropdown.value = false
@@ -1436,9 +1184,6 @@ onUnmounted(() => {
   document.removeEventListener('click', handleClickOutside)
   if (filterUserSearchTimeout) {
     clearTimeout(filterUserSearchTimeout)
-  }
-  if (userSearchTimeout) {
-    clearTimeout(userSearchTimeout)
   }
 })
 </script>

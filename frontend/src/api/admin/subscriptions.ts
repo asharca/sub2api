@@ -9,6 +9,7 @@ import type {
   SubscriptionProgress,
   AssignSubscriptionRequest,
   BulkAssignSubscriptionRequest,
+  BulkAssignSubscriptionResult,
   ExtendSubscriptionRequest,
   PaginatedResponse
 } from '@/types'
@@ -82,12 +83,12 @@ export async function assign(request: AssignSubscriptionRequest): Promise<UserSu
 /**
  * Bulk assign subscriptions to multiple users
  * @param request - Bulk assignment request
- * @returns Created subscriptions
+ * @returns Per-user assignment result, including partial failures
  */
 export async function bulkAssign(
   request: BulkAssignSubscriptionRequest
-): Promise<UserSubscription[]> {
-  const { data } = await apiClient.post<UserSubscription[]>(
+): Promise<BulkAssignSubscriptionResult> {
+  const { data } = await apiClient.post<BulkAssignSubscriptionResult>(
     '/admin/subscriptions/bulk-assign',
     request
   )

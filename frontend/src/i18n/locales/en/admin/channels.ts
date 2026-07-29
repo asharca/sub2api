@@ -642,6 +642,7 @@ export default {
       },
       form: {
         user: 'User',
+        users: 'Select Users',
         group: 'Subscription Group',
         validityDays: 'Validity (Days)',
         adjustDays: 'Adjust by (Days)'
@@ -650,6 +651,29 @@ export default {
       selectGroup: 'Select a subscription group',
       groupHint: 'Only groups with subscription billing type are shown',
       validityHint: 'Number of days the subscription will be valid',
+      bulkAssign: {
+        title: 'Bulk Assign Subscriptions',
+        selectionHint: 'Selections persist across pages. “Select current page” only affects visible users.',
+        selectedCount: '{count} selected',
+        clearSelection: 'Clear selection',
+        searchPlaceholder: 'Search by email, username, notes, or API key',
+        pageSummary: 'Showing {start}–{end} of {total} users',
+        selectCurrentPage: 'Select current page',
+        unselectCurrentPage: 'Unselect current page',
+        selectUser: 'Select user {email}',
+        previousPage: 'Previous',
+        nextPage: 'Next',
+        pageNumber: 'Page {page} of {pages}',
+        noUsers: 'No matching users',
+        retryLoad: 'Try again',
+        failedToLoadUsers: 'Failed to load users',
+        selectionLimit: 'You can assign up to {max} users at a time. Reduce the selection to continue.',
+        submit: 'Assign to {count} users',
+        success: 'Processed {count} users: {created} created, {reused} reused or renewed',
+        partialWarning: 'Bulk assignment partially completed: {success} succeeded and {failed} failed. Failed users remain selected for retry.',
+        allFailed: 'Bulk assignment failed for all {count} users.',
+        partialResult: '{success} succeeded ({created} created, {reused} reused or renewed); {failed} failed'
+      },
       adjustingFor: 'Adjusting subscription for',
       currentExpiration: 'Current expiration',
       adjustDaysPlaceholder: 'Positive to extend, negative to shorten',
@@ -697,10 +721,10 @@ export default {
           link: 'Go to Group Management'
         },
         step2: {
-          title: 'Assign Subscription to User',
+          title: 'Assign Subscriptions to Users',
           line1: 'Click the "Assign Subscription" button in the top right',
-          line2: 'Search for a user by email and select them',
-          line3: 'Choose a subscription group, set validity days, then click "Assign"'
+          line2: 'Search and select users individually, or select the current page',
+          line3: 'Choose a subscription group and validity period, then assign in bulk'
         },
         step3: {
           title: 'Manage Existing Subscriptions'
