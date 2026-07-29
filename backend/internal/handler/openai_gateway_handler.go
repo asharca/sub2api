@@ -2033,10 +2033,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				if len(requestBody) > 0 {
 					requestHash = service.HashUsageRequestPayload(requestBody)
 				}
-				requestedModelForLog := reqModel
-				if requestedModel != "" && (!channelMappingWS.Mapped || requestedModel != channelMappingWS.MappedModel) {
-					requestedModelForLog = requestedModel
-				}
+				requestedModelForLog := openAIWSConversationLogRequestedModel(turnRequestedModel, requestedModel, turnMapping)
 				submitOpenAIConversationLog(ctx, h.conversationLogService, conversationLogBaseInput{
 					Body:                      requestBody,
 					APIKey:                    apiKey,

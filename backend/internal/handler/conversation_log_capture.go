@@ -189,6 +189,14 @@ type conversationWSLogCapture struct {
 	turns map[int]*conversationWSTurnCapture
 }
 
+func openAIWSConversationLogRequestedModel(turnRequestedModel, capturedModel string, mapping service.ChannelMappingResult) string {
+	capturedModel = strings.TrimSpace(capturedModel)
+	if capturedModel != "" && (!mapping.Mapped || capturedModel != strings.TrimSpace(mapping.MappedModel)) {
+		return capturedModel
+	}
+	return strings.TrimSpace(turnRequestedModel)
+}
+
 func newConversationWSLogCapture(svc *service.ConversationLogService) *conversationWSLogCapture {
 	if svc == nil || !svc.Enabled() || (!svc.StoreRequest() && !svc.StoreResponse()) {
 		return nil

@@ -169,3 +169,41 @@ func TestConversationWSLogCapture_RequestCaptureResetsRetriedTurnFrames(t *testi
 	require.True(t, ok)
 	require.Equal(t, "fresh", response["id"])
 }
+
+func TestOpenAIWSConversationLogRequestedModelUsesCurrentTurnMapping(t *testing.T) {
+	tests := []struct {
+		name          string
+		turnModel     string
+		capturedModel string
+		mapping       service.ChannelMappingResult
+		want          string
+	}{
+		{
+			name:          "mapped upstream model falls back to current turn request",
+			turnModel:     "gpt-5.4",
+			capturedModel: "gpt-5.4-mini",
+			mapping:       service.ChannelMappingResult{Mapped: true, MappedModel: "gpt-5.4-mini"},
+			want:          "gpt-5.4",
+		},
+		{
+			name:          "captured client model wins for a later turn",
+			turnModel:     "gpt-5.4",
+			capturedModel: "gpt-5.3-codex",
+			mapping:       service.ChannelMappingResult{Mapped: true, MappedModel: "gpt-5.4-mini"},
+			want:          "gpt-5.3-codex",
+		},
+		{
+			name:          "unmapped turn uses captured model",
+			turnModel:     "gpt-5.4",
+			capturedModel: "gpt-5.4-pro",
+			mapping:       service.ChannelMappingResult{},
+			want:          "gpt-5.4-pro",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, openAIWSConversationLogRequestedModel(tt.turnModel, tt.capturedModel, tt.mapping))
+		})
+	}
+}
