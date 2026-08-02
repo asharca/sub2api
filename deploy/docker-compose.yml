@@ -19,6 +19,8 @@ services:
     image: ghcr.io/asharca/sub2api:${SUB2API_IMAGE_TAG:-0.1.165-asharca.1}
     container_name: sub2api
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
     ulimits:
       nofile:
         soft: 100000
