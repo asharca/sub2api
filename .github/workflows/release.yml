@@ -183,7 +183,7 @@ jobs:
           fi
 
           CONFIG_ARG=""
-          if [[ "$TAG_NAME" == *"-asharca."* ]]; then
+          if [[ "$TAG_NAME" == *"-asharca."* || "$TAG_NAME" == *"-ashark."* ]]; then
             CONFIG_ARG="--config=.goreleaser.feature.yaml"
           elif [ "${{ env.SIMPLE_RELEASE }}" = "true" ]; then
             CONFIG_ARG="--config=.goreleaser.simple.yaml"
