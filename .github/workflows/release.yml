@@ -310,7 +310,7 @@ jobs:
             TAG_NAME=${GITHUB_REF#refs/tags/}
           fi
 
-          if [[ "$TAG_NAME" == *"-asharca."* ]]; then
+          if [[ "$TAG_NAME" == *"-asharca."* || "$TAG_NAME" == *"-ashark."* ]]; then
             echo "Feature release ${TAG_NAME}; keeping default branch aligned with upstream."
             exit 0
           fi
