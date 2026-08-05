@@ -14,7 +14,7 @@
                 <input
                   v-model="filters.q"
                   type="text"
-                  :placeholder="isAdminView ? t('admin.conversationLogs.searchPlaceholder') : t('admin.conversationLogs.userSearchPlaceholder')"
+                  :placeholder="isAdminView ? logText('searchPlaceholder') : logText('userSearchPlaceholder')"
                   class="input pl-10"
                   @input="onSearchInput"
                   @keyup.enter="applyFilters"
@@ -24,7 +24,7 @@
               <div class="w-full sm:w-52">
                 <Input
                   v-model="filters.model"
-                  :placeholder="t('admin.conversationLogs.modelPlaceholder')"
+                  :placeholder="logText('modelPlaceholder')"
                   @enter="applyFilters"
                 />
               </div>
@@ -163,7 +163,7 @@
             <div class="min-w-[6rem]">
               <div class="font-medium text-gray-900 dark:text-white">{{ formatMs(row.duration_ms) }}</div>
               <div class="text-xs text-gray-500 dark:text-gray-400">
-                {{ t('admin.conversationLogs.firstToken') }} {{ formatMs(row.first_token_ms) }}
+                {{ logText('firstToken') }} {{ formatMs(row.first_token_ms) }}
               </div>
             </div>
           </template>
@@ -172,11 +172,11 @@
             <button
               type="button"
               class="btn btn-sm btn-secondary"
-              :title="t('admin.conversationLogs.viewDetails')"
+              :title="logText('viewDetails')"
               @click="openDetail(row)"
             >
               <Icon name="eye" size="sm" class="mr-1.5" />
-              {{ t('admin.conversationLogs.viewDetails') }}
+              {{ logText('viewDetails') }}
             </button>
           </template>
 
@@ -184,7 +184,7 @@
             <div class="flex flex-col items-center py-4 text-center">
               <Icon name="chat" size="xl" class="mb-3 text-gray-300 dark:text-dark-500" />
               <p class="max-w-md text-sm text-gray-500 dark:text-gray-400">
-                {{ t('admin.conversationLogs.noRecords') }}
+                {{ logText('noRecords') }}
               </p>
             </div>
           </template>
@@ -206,7 +206,7 @@
 
   <BaseDialog
     :show="detailVisible"
-    :title="t('admin.conversationLogs.details')"
+    :title="logText('details')"
     width="full"
     @close="closeDetail"
   >
@@ -217,40 +217,56 @@
       </div>
 
       <div class="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <DetailItem v-if="isAdminView" :label="t('admin.conversationLogs.user')" :value="displayUser(selectedLog)" />
-        <DetailItem :label="t('admin.conversationLogs.apiKey')" :value="displayApiKey(selectedLog)" />
-        <DetailItem v-if="isAdminView" :label="t('admin.conversationLogs.account')" :value="displayAccount(selectedLog)" />
-        <DetailItem :label="t('admin.conversationLogs.group')" :value="displayGroup(selectedLog)" />
-        <DetailItem :label="t('admin.conversationLogs.platform')" :value="selectedLog.platform || '-'" />
-        <DetailItem :label="t('admin.conversationLogs.model')" :value="selectedLog.model || selectedLog.requested_model || '-'" />
-        <DetailItem :label="t('admin.conversationLogs.requestType')" :value="requestTypeLabel(selectedLog.request_type)" />
-        <DetailItem :label="t('admin.conversationLogs.status')" :value="String(selectedLog.status_code || '-')" />
-        <DetailItem :label="t('admin.conversationLogs.inboundEndpoint')" :value="selectedLog.inbound_endpoint || '-'" />
-        <DetailItem v-if="isAdminView" :label="t('admin.conversationLogs.upstreamEndpoint')" :value="selectedLog.upstream_endpoint || '-'" />
-        <DetailItem :label="t('admin.conversationLogs.latency')" :value="formatMs(selectedLog.duration_ms)" />
-        <DetailItem v-if="isAdminView" :label="t('admin.conversationLogs.queueDelay')" :value="formatMs(selectedLog.queue_delay_ms)" />
-        <DetailItem :label="t('admin.conversationLogs.totalTokens')" :value="formatNumber(selectedLog.total_tokens)" />
-        <DetailItem :label="t('admin.conversationLogs.cacheTokens')" :value="formatNumber(selectedLog.cache_read_tokens + selectedLog.cache_create_tokens)" />
-        <DetailItem v-if="isAdminView" :label="t('admin.conversationLogs.requestHash')" :value="selectedLog.request_hash || '-'" />
-        <DetailItem :label="t('admin.conversationLogs.responseId')" :value="selectedLog.response_id || '-'" />
+        <DetailItem v-if="isAdminView" :label="logText('user')" :value="displayUser(selectedLog)" />
+        <DetailItem :label="logText('apiKey')" :value="displayApiKey(selectedLog)" />
+        <DetailItem v-if="isAdminView" :label="logText('account')" :value="displayAccount(selectedLog)" />
+        <DetailItem :label="logText('group')" :value="displayGroup(selectedLog)" />
+        <DetailItem :label="logText('platform')" :value="selectedLog.platform || '-'" />
+        <DetailItem :label="logText('model')" :value="selectedLog.model || selectedLog.requested_model || '-'" />
+        <DetailItem :label="logText('requestType')" :value="requestTypeLabel(selectedLog.request_type)" />
+        <DetailItem :label="logText('status')" :value="String(selectedLog.status_code || '-')" />
+        <DetailItem :label="logText('inboundEndpoint')" :value="selectedLog.inbound_endpoint || '-'" />
+        <DetailItem v-if="isAdminView" :label="logText('upstreamEndpoint')" :value="selectedLog.upstream_endpoint || '-'" />
+        <DetailItem :label="logText('latency')" :value="formatMs(selectedLog.duration_ms)" />
+        <DetailItem v-if="isAdminView" :label="logText('queueDelay')" :value="formatMs(selectedLog.queue_delay_ms)" />
+        <DetailItem :label="logText('totalTokens')" :value="formatNumber(selectedLog.total_tokens)" />
+        <DetailItem :label="logText('cacheTokens')" :value="formatNumber(selectedLog.cache_read_tokens + selectedLog.cache_create_tokens)" />
+        <DetailItem v-if="isAdminView" :label="logText('requestHash')" :value="selectedLog.request_hash || '-'" />
+        <DetailItem :label="logText('responseId')" :value="selectedLog.response_id || '-'" />
       </div>
 
-      <div class="grid grid-cols-1 gap-4 xl:grid-cols-2">
-        <PayloadPanel
-          :title="t('admin.conversationLogs.requestBody')"
-          :body="selectedLog.request_body"
-          :empty-text="t('admin.conversationLogs.noRequestBody')"
-          :truncated="selectedLog.request_truncated"
-          @copy="copyText(selectedLog.request_body)"
-        />
-        <PayloadPanel
-          :title="t('admin.conversationLogs.responseBody')"
-          :body="selectedLog.response_body"
-          :empty-text="t('admin.conversationLogs.noResponseBody')"
-          :truncated="selectedLog.response_truncated"
-          @copy="copyText(selectedLog.response_body)"
-        />
-      </div>
+      <ConversationTimeline
+        :key="selectedLog.id"
+        :request-body="selectedLog.request_body"
+        :response-body="selectedLog.response_body"
+        :i18n-prefix="conversationLogsI18nPrefix"
+      />
+
+      <details class="group rounded-xl border border-gray-200 bg-white dark:border-dark-700 dark:bg-dark-800">
+        <summary class="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-semibold text-gray-800 hover:bg-gray-50 dark:text-dark-100 dark:hover:bg-dark-700/60">
+          <span class="flex items-center gap-2">
+            <Icon name="document" size="sm" class="text-gray-400 dark:text-dark-400" />
+            {{ logText('rawPayloads') }}
+          </span>
+          <Icon name="chevronDown" size="sm" class="text-gray-400 transition-transform group-open:rotate-180 dark:text-dark-400" />
+        </summary>
+        <div class="grid grid-cols-1 gap-4 border-t border-gray-200 p-4 dark:border-dark-700 xl:grid-cols-2">
+          <PayloadPanel
+            :title="logText('requestBody')"
+            :body="selectedLog.request_body"
+            :empty-text="logText('noRequestBody')"
+            :truncated="selectedLog.request_truncated"
+            @copy="copyText(selectedLog.request_body)"
+          />
+          <PayloadPanel
+            :title="logText('responseBody')"
+            :body="selectedLog.response_body"
+            :empty-text="logText('noResponseBody')"
+            :truncated="selectedLog.response_truncated"
+            @copy="copyText(selectedLog.response_body)"
+          />
+        </div>
+      </details>
     </div>
   </BaseDialog>
 </template>
@@ -268,6 +284,7 @@ import DateRangePicker from '@/components/common/DateRangePicker.vue'
 import Input from '@/components/common/Input.vue'
 import Select from '@/components/common/Select.vue'
 import Icon from '@/components/icons/Icon.vue'
+import ConversationTimeline from '@/components/admin/ConversationTimeline.vue'
 import { useAppStore } from '@/stores/app'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
 import { adminConversationLogsAPI } from '@/api/admin/conversationLogs'
@@ -284,6 +301,12 @@ const appStore = useAppStore()
 const route = useRoute()
 const isAdminView = computed(() => route.path.startsWith('/admin/'))
 const activeConversationLogsAPI = computed(() => isAdminView.value ? adminConversationLogsAPI : conversationLogsAPI)
+const conversationLogsI18nPrefix = computed(() => isAdminView.value ? 'admin.conversationLogs' : 'conversationLogs')
+
+function logText(key: string, params?: Record<string, unknown>) {
+  const path = `${conversationLogsI18nPrefix.value}.${key}`
+  return params ? t(path, params) : t(path)
+}
 
 const todayString = () => formatDateForInput(new Date())
 const daysAgoString = (days: number) => {
@@ -327,24 +350,24 @@ let searchTimer: number | null = null
 
 const columns = computed<Column[]>(() => {
   const items: Column[] = [
-    { key: 'created_at', label: t('admin.conversationLogs.time'), sortable: true, class: 'min-w-[180px]' }
+    { key: 'created_at', label: logText('time'), sortable: true, class: 'min-w-[180px]' }
   ]
   if (isAdminView.value) {
-    items.push({ key: 'actor', label: t('admin.conversationLogs.actor'), class: 'min-w-[220px]' })
+    items.push({ key: 'actor', label: logText('actor'), class: 'min-w-[220px]' })
   }
   items.push(
-    { key: 'route', label: t('admin.conversationLogs.route'), class: 'min-w-[220px]' },
-    { key: 'model', label: t('admin.conversationLogs.model'), class: 'min-w-[200px]' },
-    { key: 'status_code', label: t('admin.conversationLogs.status'), sortable: true, class: 'min-w-[110px]' },
-    { key: 'total_tokens', label: t('admin.conversationLogs.tokens'), class: 'min-w-[120px]' },
-    { key: 'duration_ms', label: t('admin.conversationLogs.latency'), sortable: true, class: 'min-w-[140px]' },
-    { key: 'actions', label: t('admin.conversationLogs.action'), class: 'min-w-[140px]' }
+    { key: 'route', label: logText('route'), class: 'min-w-[220px]' },
+    { key: 'model', label: logText('model'), class: 'min-w-[200px]' },
+    { key: 'status_code', label: logText('status'), sortable: true, class: 'min-w-[110px]' },
+    { key: 'total_tokens', label: logText('tokens'), class: 'min-w-[120px]' },
+    { key: 'duration_ms', label: logText('latency'), sortable: true, class: 'min-w-[140px]' },
+    { key: 'actions', label: logText('action'), class: 'min-w-[140px]' }
   )
   return items
 })
 
 const platformOptions = computed(() => [
-  { value: null, label: t('admin.conversationLogs.allPlatforms') },
+  { value: null, label: logText('allPlatforms') },
   { value: 'anthropic', label: 'Anthropic' },
   { value: 'openai', label: 'OpenAI' },
   { value: 'gemini', label: 'Gemini' },
@@ -353,7 +376,7 @@ const platformOptions = computed(() => [
 ])
 
 const requestTypeOptions = computed(() => [
-  { value: null, label: t('admin.conversationLogs.allTypes') },
+  { value: null, label: logText('allTypes') },
   { value: 'sync', label: requestTypeLabel('sync') },
   { value: 'stream', label: requestTypeLabel('stream') },
   { value: 'ws_v2', label: requestTypeLabel('ws_v2') },
@@ -361,9 +384,9 @@ const requestTypeOptions = computed(() => [
 ])
 
 const streamOptions = computed(() => [
-  { value: null, label: t('admin.conversationLogs.allStreams') },
-  { value: true, label: t('admin.conversationLogs.streamOnly') },
-  { value: false, label: t('admin.conversationLogs.nonStreamOnly') }
+  { value: null, label: logText('allStreams') },
+  { value: true, label: logText('streamOnly') },
+  { value: false, label: logText('nonStreamOnly') }
 ])
 
 async function loadLogs() {
@@ -382,7 +405,7 @@ async function loadLogs() {
     pagination.pages = result.pages || 1
   } catch (error: any) {
     if (isCancelError(error)) return
-    appStore.showError(t('admin.conversationLogs.failedToLoad'))
+    appStore.showError(logText('failedToLoad'))
   } finally {
     if (!controller.signal.aborted) {
       loading.value = false
@@ -465,7 +488,7 @@ async function openDetail(row: ConversationLog) {
       selectedLog.value = detail
     }
   } catch {
-    appStore.showError(t('admin.conversationLogs.failedToLoadDetail'))
+    appStore.showError(logText('failedToLoadDetail'))
   } finally {
     detailLoading.value = false
   }
@@ -480,7 +503,7 @@ async function copyText(text: string) {
   if (!text) return
   try {
     await navigator.clipboard.writeText(text)
-    appStore.showSuccess(t('admin.conversationLogs.copied'))
+    appStore.showSuccess(logText('copied'))
   } catch {
     appStore.showError(t('common.copyFailed'))
   }
@@ -489,7 +512,7 @@ async function copyText(text: string) {
 function displayUser(row: ConversationLog) {
   if (row.user_email) return row.user_email
   if (row.user_id) return `#${row.user_id}`
-  return t('admin.conversationLogs.unknown')
+  return logText('unknown')
 }
 
 function displayApiKey(row: ConversationLog) {
@@ -689,7 +712,7 @@ const PayloadPanel = defineComponent({
                 : null
             ]),
             props.truncated
-              ? h('p', { class: 'mt-1 text-xs text-amber-600 dark:text-amber-400' }, t('admin.conversationLogs.truncated'))
+              ? h('p', { class: 'mt-1 text-xs text-amber-600 dark:text-amber-400' }, logText('truncated'))
               : null
           ]),
           h(
@@ -700,7 +723,7 @@ const PayloadPanel = defineComponent({
               disabled: !content,
               onClick: () => emit('copy')
             },
-            [h(Icon, { name: 'copy', size: 'sm', class: 'mr-1.5' }), t('admin.conversationLogs.copy')]
+            [h(Icon, { name: 'copy', size: 'sm', class: 'mr-1.5' }), logText('copy')]
           )
         ]),
         content
@@ -709,7 +732,7 @@ const PayloadPanel = defineComponent({
                 h(JsonTree, { value: payload.value })
               ])
             : h('pre', { class: 'max-h-[34rem] overflow-auto whitespace-pre-wrap break-words p-4 text-xs leading-relaxed text-gray-800 dark:text-gray-100' }, content)
-          : h('div', { class: 'p-6 text-sm text-gray-500 dark:text-gray-400' }, props.emptyText || t('admin.conversationLogs.bodyUnavailable'))
+          : h('div', { class: 'p-6 text-sm text-gray-500 dark:text-gray-400' }, props.emptyText || logText('bodyUnavailable'))
       ])
     }
   }

@@ -1289,6 +1289,38 @@ export default {
       cacheTokens: '缓存 Token',
       truncated: '内容已截断',
       bodyUnavailable: '内容为空',
+      rawPayloads: '查看原始请求与响应',
+      timeline: {
+        title: '对话执行时间线',
+        description: '按轮次查看上下文、模型回复，以及每次工具调用和返回结果。',
+        round: '第 {index} 轮',
+        context: '上下文',
+        roundCount: '{count} 轮',
+        messageCount: '{count} 条消息',
+        operationCount: '{count} 次操作',
+        roundMessageCount: '{count} 条消息',
+        messageIndex: '消息 {index}',
+        input: '调用参数',
+        output: '执行结果',
+        emptyMessage: '此消息没有可展示的文本内容。',
+        noMessages: '暂未识别出结构化对话',
+        noMessagesHint: '请展开下方原始请求与响应，查看完整的协议内容。',
+        roles: {
+          system: '系统',
+          user: '用户',
+          assistant: '模型',
+          tool: '工具',
+          unknown: '消息'
+        },
+        sources: {
+          request: '请求',
+          response: '响应'
+        },
+        operationKinds: {
+          call: '调用',
+          result: '结果'
+        }
+      },
       unknown: '未知'
     },
 

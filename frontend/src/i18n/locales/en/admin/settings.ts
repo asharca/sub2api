@@ -1295,6 +1295,38 @@ export default {
       cacheTokens: 'Cache Tokens',
       truncated: 'Content truncated',
       bodyUnavailable: 'Empty content',
+      rawPayloads: 'View raw request and response',
+      timeline: {
+        title: 'Conversation Execution Timeline',
+        description: 'Review context, model replies, tool calls, and returned results in turn order.',
+        round: 'Turn {index}',
+        context: 'Context',
+        roundCount: '{count} turns',
+        messageCount: '{count} messages',
+        operationCount: '{count} operations',
+        roundMessageCount: '{count} messages',
+        messageIndex: 'Message {index}',
+        input: 'Arguments',
+        output: 'Result',
+        emptyMessage: 'This message has no text content to display.',
+        noMessages: 'No structured conversation detected',
+        noMessagesHint: 'Expand the raw request and response below to inspect the complete protocol payloads.',
+        roles: {
+          system: 'System',
+          user: 'User',
+          assistant: 'Model',
+          tool: 'Tool',
+          unknown: 'Message'
+        },
+        sources: {
+          request: 'Request',
+          response: 'Response'
+        },
+        operationKinds: {
+          call: 'Call',
+          result: 'Result'
+        }
+      },
       unknown: 'Unknown'
     },
 
