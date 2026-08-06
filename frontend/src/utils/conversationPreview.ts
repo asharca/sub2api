@@ -11,17 +11,25 @@ export interface ConversationPreview {
 export function buildConversationPreview(requestBody: string, responseBody: string): ConversationPreview {
   const timeline = buildConversationTimeline(requestBody, responseBody)
   const messages = timeline.rounds.flatMap((round) => round.messages)
-  const preferredMessage =
-    messages.find((message) => message.role === 'user' && message.parts.length > 0) ||
-    messages.find((message) => message.role === 'assistant' && message.parts.length > 0) ||
-    messages.find((message) => message.parts.length > 0)
-  const rawText = preferredMessage?.parts.map((part) => part.text).find((part) => !looksLikePayload(part)) || ''
+  const newestMessages = [...messages].reverse()
+  const rawText =
+    previewTextFrom(newestMessages.filter((message) => message.role === 'user')) ||
+    previewTextFrom(newestMessages.filter((message) => message.role === 'assistant')) ||
+    previewTextFrom(newestMessages)
 
   return {
     text: compactText(rawText),
     messageCount: timeline.messageCount,
     operationCount: timeline.operationCount
   }
+}
+
+function previewTextFrom(messages: ReturnType<typeof buildConversationTimeline>['rounds'][number]['messages']): string {
+  for (const message of messages) {
+    const text = message.parts.map((part) => part.text).find((part) => !looksLikePayload(part))
+    if (text) return text
+  }
+  return ''
 }
 
 function compactText(value: string): string {

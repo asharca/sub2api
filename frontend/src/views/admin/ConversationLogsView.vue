@@ -233,25 +233,6 @@
         {{ t('common.loading') }}
       </div>
 
-      <div class="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <DetailItem v-if="isAdminView" :label="logText('user')" :value="displayUser(selectedLog)" />
-        <DetailItem :label="logText('apiKey')" :value="displayApiKey(selectedLog)" />
-        <DetailItem v-if="isAdminView" :label="logText('account')" :value="displayAccount(selectedLog)" />
-        <DetailItem :label="logText('group')" :value="displayGroup(selectedLog)" />
-        <DetailItem :label="logText('platform')" :value="selectedLog.platform || '-'" />
-        <DetailItem :label="logText('model')" :value="selectedLog.model || selectedLog.requested_model || '-'" />
-        <DetailItem :label="logText('requestType')" :value="requestTypeLabel(selectedLog.request_type)" />
-        <DetailItem :label="logText('status')" :value="String(selectedLog.status_code || '-')" />
-        <DetailItem :label="logText('inboundEndpoint')" :value="selectedLog.inbound_endpoint || '-'" />
-        <DetailItem v-if="isAdminView" :label="logText('upstreamEndpoint')" :value="selectedLog.upstream_endpoint || '-'" />
-        <DetailItem :label="logText('latency')" :value="formatMs(selectedLog.duration_ms)" />
-        <DetailItem v-if="isAdminView" :label="logText('queueDelay')" :value="formatMs(selectedLog.queue_delay_ms)" />
-        <DetailItem :label="logText('totalTokens')" :value="formatNumber(selectedLog.total_tokens)" />
-        <DetailItem :label="logText('cacheTokens')" :value="formatNumber(selectedLog.cache_read_tokens + selectedLog.cache_create_tokens)" />
-        <DetailItem v-if="isAdminView" :label="logText('requestHash')" :value="selectedLog.request_hash || '-'" />
-        <DetailItem :label="logText('responseId')" :value="selectedLog.response_id || '-'" />
-      </div>
-
       <ConversationTimeline
         :key="selectedLog.id"
         :request-body="selectedLog.request_body"
@@ -260,6 +241,48 @@
         :response-truncated="selectedLog.response_truncated"
         :i18n-prefix="conversationLogsI18nPrefix"
       />
+
+      <section class="overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-dark-700 dark:bg-dark-800">
+        <button
+          type="button"
+          class="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-gray-50 dark:hover:bg-dark-700/60"
+          :aria-expanded="metadataVisible"
+          @click="metadataVisible = !metadataVisible"
+        >
+          <span class="flex min-w-0 items-center gap-2">
+            <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gray-100 text-gray-500 dark:bg-dark-700 dark:text-dark-300">
+              <Icon name="document" size="sm" />
+            </span>
+            <span class="min-w-0">
+              <span class="block text-sm font-semibold text-gray-800 dark:text-dark-100">{{ logText('requestInfo') }}</span>
+              <span class="block truncate text-xs text-gray-500 dark:text-dark-400">{{ logText('requestInfoHint') }}</span>
+            </span>
+          </span>
+          <span class="flex shrink-0 items-center gap-2">
+            <span class="hidden rounded bg-gray-100 px-2 py-1 text-[10px] font-semibold text-gray-600 dark:bg-dark-700 dark:text-dark-200 sm:inline">{{ selectedLog.model || selectedLog.requested_model || '-' }}</span>
+            <span class="rounded px-2 py-1 text-[10px] font-semibold" :class="statusClass(selectedLog.status_code)">{{ selectedLog.status_code || '-' }}</span>
+            <Icon name="chevronDown" size="sm" class="text-gray-400 transition-transform dark:text-dark-400" :class="metadataVisible ? 'rotate-180' : ''" />
+          </span>
+        </button>
+        <div v-if="metadataVisible" class="grid grid-cols-1 gap-3 border-t border-gray-200 p-3 dark:border-dark-700 sm:grid-cols-2 xl:grid-cols-4">
+          <DetailItem v-if="isAdminView" :label="logText('user')" :value="displayUser(selectedLog)" />
+          <DetailItem :label="logText('apiKey')" :value="displayApiKey(selectedLog)" />
+          <DetailItem v-if="isAdminView" :label="logText('account')" :value="displayAccount(selectedLog)" />
+          <DetailItem :label="logText('group')" :value="displayGroup(selectedLog)" />
+          <DetailItem :label="logText('platform')" :value="selectedLog.platform || '-'" />
+          <DetailItem :label="logText('model')" :value="selectedLog.model || selectedLog.requested_model || '-'" />
+          <DetailItem :label="logText('requestType')" :value="requestTypeLabel(selectedLog.request_type)" />
+          <DetailItem :label="logText('status')" :value="String(selectedLog.status_code || '-')" />
+          <DetailItem :label="logText('inboundEndpoint')" :value="selectedLog.inbound_endpoint || '-'" />
+          <DetailItem v-if="isAdminView" :label="logText('upstreamEndpoint')" :value="selectedLog.upstream_endpoint || '-'" />
+          <DetailItem :label="logText('latency')" :value="formatMs(selectedLog.duration_ms)" />
+          <DetailItem v-if="isAdminView" :label="logText('queueDelay')" :value="formatMs(selectedLog.queue_delay_ms)" />
+          <DetailItem :label="logText('totalTokens')" :value="formatNumber(selectedLog.total_tokens)" />
+          <DetailItem :label="logText('cacheTokens')" :value="formatNumber(selectedLog.cache_read_tokens + selectedLog.cache_create_tokens)" />
+          <DetailItem v-if="isAdminView" :label="logText('requestHash')" :value="selectedLog.request_hash || '-'" />
+          <DetailItem :label="logText('responseId')" :value="selectedLog.response_id || '-'" />
+        </div>
+      </section>
 
       <details class="group rounded-xl border border-gray-200 bg-white dark:border-dark-700 dark:bg-dark-800">
         <summary class="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-semibold text-gray-800 hover:bg-gray-50 dark:text-dark-100 dark:hover:bg-dark-700/60">
@@ -343,6 +366,7 @@ const logs = ref<ConversationLog[]>([])
 const loading = ref(false)
 const detailLoading = ref(false)
 const detailVisible = ref(false)
+const metadataVisible = ref(false)
 const selectedLog = ref<ConversationLog | null>(null)
 const sortBy = ref('created_at')
 const sortOrder = ref<SortOrder>('desc')
@@ -418,8 +442,9 @@ const streamOptions = computed(() => [
 
 async function loadLogs() {
   if (isSeedPreview.value) {
-    logs.value = conversationLogSeed
-    pagination.total = conversationLogSeed.length
+    const seedLogs = filterSeedLogs()
+    logs.value = seedLogs
+    pagination.total = seedLogs.length
     pagination.page = 1
     pagination.pages = 1
     loading.value = false
@@ -515,6 +540,7 @@ function handleSort(key: string, order: SortOrder) {
 
 async function openDetail(row: ConversationLog) {
   selectedLog.value = row
+  metadataVisible.value = false
   detailVisible.value = true
   if (isSeedPreview.value) {
     detailLoading.value = false
@@ -535,7 +561,45 @@ async function openDetail(row: ConversationLog) {
 
 function closeDetail() {
   detailVisible.value = false
+  metadataVisible.value = false
   selectedLog.value = null
+}
+
+function filterSeedLogs() {
+  return conversationLogSeed.filter(matchesSeedFilters)
+}
+
+function matchesSeedFilters(row: ConversationLog) {
+  const query = filters.q.trim().toLocaleLowerCase()
+  if (query) {
+    const preview = buildConversationPreview(row.request_body, row.response_body)
+    const searchable = [
+      row.request_id,
+      row.response_id,
+      row.user_email,
+      row.api_key_name,
+      row.account_name,
+      row.group_name,
+      row.platform,
+      row.inbound_endpoint,
+      row.model,
+      row.requested_model,
+      row.upstream_model,
+      preview.text
+    ].join(' ').toLocaleLowerCase()
+    if (!searchable.includes(query)) return false
+  }
+  if (filters.model && ![row.model, row.requested_model, row.upstream_model].join(' ').toLocaleLowerCase().includes(filters.model.trim().toLocaleLowerCase())) {
+    return false
+  }
+  if (filters.platform && row.platform !== filters.platform) return false
+  if (filters.request_type && row.request_type !== filters.request_type) return false
+  if (filters.stream !== null && row.stream !== filters.stream) return false
+
+  const date = formatDateForInput(new Date(row.created_at))
+  if (startDate.value && date < startDate.value) return false
+  if (endDate.value && date > endDate.value) return false
+  return true
 }
 
 async function copyText(text: string) {

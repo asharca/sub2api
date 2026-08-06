@@ -13,7 +13,40 @@
         </div>
       </div>
 
-      <div class="flex flex-wrap items-center gap-2 text-xs">
+      <div class="flex w-full flex-wrap items-center justify-between gap-2 text-xs sm:w-auto sm:justify-end">
+        <label class="relative w-full sm:w-64">
+          <Icon name="search" size="xs" class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-dark-400" />
+          <input
+            v-model="timelineSearch"
+            type="search"
+            class="input h-9 w-full py-1.5 pl-8 pr-3 text-xs"
+            :placeholder="text('timeline.searchPlaceholder')"
+            :aria-label="text('timeline.searchPlaceholder')"
+          >
+        </label>
+        <div class="inline-flex overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm dark:border-dark-600 dark:bg-dark-800">
+          <button
+            type="button"
+            class="px-2.5 py-1.5 font-semibold transition-colors"
+            :class="timelineOrder === 'desc' ? 'bg-primary-600 text-white dark:bg-primary-500' : 'text-gray-500 hover:bg-gray-50 dark:text-dark-300 dark:hover:bg-dark-700'"
+            :aria-pressed="timelineOrder === 'desc'"
+            @click="timelineOrder = 'desc'"
+          >
+            {{ text('timeline.newestFirst') }}
+          </button>
+          <button
+            type="button"
+            class="px-2.5 py-1.5 font-semibold transition-colors"
+            :class="timelineOrder === 'asc' ? 'bg-primary-600 text-white dark:bg-primary-500' : 'text-gray-500 hover:bg-gray-50 dark:text-dark-300 dark:hover:bg-dark-700'"
+            :aria-pressed="timelineOrder === 'asc'"
+            @click="timelineOrder = 'asc'"
+          >
+            {{ text('timeline.oldestFirst') }}
+          </button>
+        </div>
+        <span v-if="hasTimelineSearch" class="rounded-full bg-primary-50 px-2.5 py-1 font-medium text-primary-700 ring-1 ring-primary-100 dark:bg-primary-500/15 dark:text-primary-300 dark:ring-primary-500/20">
+          {{ text('timeline.searchResultCount', { count: matchingMessageCount }) }}
+        </span>
         <span class="rounded-full bg-white px-2.5 py-1 font-medium text-gray-600 ring-1 ring-gray-200 dark:bg-dark-800 dark:text-dark-200 dark:ring-dark-600">
           {{ text('timeline.roundCount', { count: timeline.rounds.length }) }}
         </span>
@@ -29,20 +62,20 @@
       </div>
     </div>
 
-    <div v-if="timeline.rounds.length" class="max-h-[46rem] space-y-5 overflow-y-auto p-4 sm:p-5">
-      <section v-for="round in timeline.rounds" :key="round.id" class="relative">
+    <div v-if="displayRounds.length" class="max-h-[46rem] space-y-5 overflow-y-auto p-4 sm:p-5">
+      <section v-for="round in displayRounds" :key="round.id" class="relative">
         <div class="mb-3 flex flex-wrap items-center gap-2">
           <span class="inline-flex items-center gap-1.5 rounded-full bg-gray-900 px-2.5 py-1 text-xs font-semibold text-white dark:bg-white dark:text-dark-900">
             <Icon name="arrowRight" size="xs" />
             {{ roundTitle(round) }}
           </span>
           <span class="text-xs text-gray-400 dark:text-dark-400">
-            {{ text('timeline.roundMessageCount', { count: round.messages.length }) }}
+            {{ text('timeline.roundMessageCount', { count: displayMessages(round).length }) }}
           </span>
         </div>
 
         <ol class="relative space-y-3 pl-4 before:absolute before:bottom-3 before:left-[1.15rem] before:top-3 before:w-px before:bg-gray-200 dark:before:bg-dark-600 sm:pl-8">
-          <li v-for="(message, messageIndex) in round.messages" :key="message.id" class="relative">
+          <li v-for="(message, messageIndex) in displayMessages(round)" :key="message.id" class="relative">
             <span
               class="absolute -left-4 top-4 z-10 flex h-5 w-5 -translate-x-1/2 items-center justify-center rounded-full border-2 border-white shadow-sm dark:border-dark-800 sm:-left-8"
               :class="roleMarkerClass(message.role)"
@@ -130,8 +163,8 @@
       <span class="flex h-12 w-12 items-center justify-center rounded-2xl bg-gray-100 text-gray-400 dark:bg-dark-700 dark:text-dark-400">
         <Icon name="document" size="lg" />
       </span>
-      <p class="mt-3 text-sm font-medium text-gray-700 dark:text-dark-200">{{ text('timeline.noMessages') }}</p>
-      <p class="mt-1 max-w-lg text-xs leading-5 text-gray-500 dark:text-dark-400">{{ text('timeline.noMessagesHint') }}</p>
+      <p class="mt-3 text-sm font-medium text-gray-700 dark:text-dark-200">{{ hasTimelineSearch ? text('timeline.noSearchResults') : text('timeline.noMessages') }}</p>
+      <p class="mt-1 max-w-lg text-xs leading-5 text-gray-500 dark:text-dark-400">{{ hasTimelineSearch ? text('timeline.noSearchResultsHint') : text('timeline.noMessagesHint') }}</p>
     </div>
   </section>
 </template>
@@ -155,8 +188,21 @@ const props = withDefaults(defineProps<{
 
 const { t } = useI18n()
 const timeline = computed(() => buildConversationTimeline(props.requestBody, props.responseBody))
+const timelineOrder = ref<'asc' | 'desc'>('asc')
+const timelineSearch = ref('')
 const expandedMessages = ref(new Set<string>())
 const hasTruncatedPayload = computed(() => props.requestTruncated || props.responseTruncated)
+const normalizedTimelineSearch = computed(() => timelineSearch.value.trim().toLocaleLowerCase())
+const hasTimelineSearch = computed(() => normalizedTimelineSearch.value.length > 0)
+const matchingRounds = computed(() => hasTimelineSearch.value
+  ? timeline.value.rounds.filter((round) => round.messages.some(matchesMessage))
+  : timeline.value.rounds
+)
+const displayRounds = computed(() => timelineOrder.value === 'desc' ? [...matchingRounds.value].reverse() : matchingRounds.value)
+const matchingMessageCount = computed(() => hasTimelineSearch.value
+  ? matchingRounds.value.reduce((total, round) => total + round.messages.filter(matchesMessage).length, 0)
+  : timeline.value.messageCount
+)
 
 function text(key: string, params?: Record<string, unknown>) {
   const path = `${props.i18nPrefix}.${key}`
@@ -166,6 +212,25 @@ function text(key: string, params?: Record<string, unknown>) {
 function roundTitle(round: ConversationRound) {
   const hasUserMessage = round.messages.some((message) => message.role === 'user')
   return hasUserMessage ? text('timeline.round', { index: round.index }) : text('timeline.context')
+}
+
+function displayMessages(round: ConversationRound) {
+  const messages = hasTimelineSearch.value ? round.messages.filter(matchesMessage) : round.messages
+  return timelineOrder.value === 'desc' ? [...messages].reverse() : messages
+}
+
+function matchesMessage(message: ConversationMessage) {
+  if (!hasTimelineSearch.value) return true
+  const searchable = [
+    ...message.parts.flatMap((part) => [part.label, part.text]),
+    ...message.operations.flatMap((operation) => [
+      operation.name,
+      operation.callId,
+      formatValue(operation.input),
+      formatValue(operation.output)
+    ])
+  ].filter((value): value is string => Boolean(value)).join('\n').toLocaleLowerCase()
+  return searchable.includes(normalizedTimelineSearch.value)
 }
 
 function shouldCollapseMessage(message: ConversationMessage) {
@@ -178,7 +243,7 @@ function shouldCollapseMessage(message: ConversationMessage) {
 }
 
 function isMessageCollapsed(message: ConversationMessage) {
-  return shouldCollapseMessage(message) && !expandedMessages.value.has(message.id)
+  return !hasTimelineSearch.value && shouldCollapseMessage(message) && !expandedMessages.value.has(message.id)
 }
 
 function toggleMessage(messageId: string) {
