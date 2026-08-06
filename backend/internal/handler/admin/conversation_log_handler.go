@@ -77,7 +77,7 @@ func (h *ConversationLogHandler) List(c *gin.Context) {
 	}
 	out := make([]conversationLogResponse, 0, len(items))
 	for i := range items {
-		out = append(out, conversationLogToResponse(&items[i]))
+		out = append(out, conversationLogToListResponse(&items[i]))
 	}
 	response.Paginated(c, out, result.Total, result.Page, result.PageSize)
 }
@@ -209,6 +209,16 @@ func conversationLogToResponse(log *service.ConversationLog) conversationLogResp
 		CreatedAt:         log.CreatedAt.Format(time.RFC3339),
 		TotalTokens:       log.InputTokens + log.OutputTokens + log.CacheReadTokens + log.CacheCreateTokens,
 	}
+}
+
+// conversationLogToListResponse deliberately omits payload bodies. Production
+// conversation records can be very large; the detail endpoint loads one record
+// on demand when an administrator explicitly asks to inspect it.
+func conversationLogToListResponse(log *service.ConversationLog) conversationLogResponse {
+	result := conversationLogToResponse(log)
+	result.RequestBody = ""
+	result.ResponseBody = ""
+	return result
 }
 
 func cloneIntPtr(src *int) *int {

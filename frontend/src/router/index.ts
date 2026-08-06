@@ -811,6 +811,17 @@ router.beforeEach(async (to, _from, next) => {
   ]
   document.title = resolveRouteDocumentTitle(to, appStore.siteName, customMenuItems)
 
+  // Keep the anonymized conversation-log fixture reviewable without a local backend.
+  // This route is intentionally unavailable in production builds.
+  const isConversationLogSeedPreview =
+    import.meta.env.DEV &&
+    to.path === '/admin/conversation-logs' &&
+    to.query.seed === 'conversation-logs'
+  if (isConversationLogSeedPreview) {
+    next()
+    return
+  }
+
   // Check if route requires authentication
   const requiresAuth = to.meta.requiresAuth !== false // Default to true
   const requiresAdmin = to.meta.requiresAdmin === true

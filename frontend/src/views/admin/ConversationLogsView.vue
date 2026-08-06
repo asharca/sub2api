@@ -78,6 +78,9 @@
               </button>
             </div>
           </div>
+          <div v-if="isSeedPreview" class="rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-xs leading-5 text-sky-800 dark:border-sky-500/25 dark:bg-sky-500/10 dark:text-sky-200">
+            {{ logText('demoSeedNotice') }}
+          </div>
         </div>
       </template>
 
@@ -144,6 +147,20 @@
             </div>
           </template>
 
+          <template #cell-conversation="{ row }">
+            <div class="flex h-[5.25rem] min-w-[18rem] max-w-[26rem] flex-col justify-center">
+              <p v-if="previewFor(row).text" class="max-h-10 overflow-hidden whitespace-pre-wrap break-words text-xs leading-5 text-gray-700 dark:text-dark-100">
+                {{ previewFor(row).text }}
+              </p>
+              <p v-else class="text-xs text-gray-400 dark:text-dark-400">{{ isSeedPreview ? logText('previewUnavailable') : logText('previewOnDemand') }}</p>
+              <div class="mt-2 flex flex-wrap items-center gap-1.5 text-[10px] font-medium text-gray-500 dark:text-dark-300">
+                <span class="rounded bg-gray-100 px-1.5 py-0.5 dark:bg-dark-700">{{ logText('previewMessages', { count: previewFor(row).messageCount }) }}</span>
+                <span v-if="previewFor(row).operationCount" class="rounded bg-indigo-50 px-1.5 py-0.5 text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300">{{ logText('previewOperations', { count: previewFor(row).operationCount }) }}</span>
+                <span v-if="row.request_truncated || row.response_truncated" class="rounded bg-amber-50 px-1.5 py-0.5 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">{{ logText('truncated') }}</span>
+              </div>
+            </div>
+          </template>
+
           <template #cell-status_code="{ row }">
             <span class="inline-flex rounded px-2 py-1 text-xs font-semibold" :class="statusClass(row.status_code)">
               {{ row.status_code || '-' }}
@@ -172,11 +189,11 @@
             <button
               type="button"
               class="btn btn-sm btn-secondary"
-              :title="logText('viewDetails')"
+              :title="logText('viewConversation')"
               @click="openDetail(row)"
             >
               <Icon name="eye" size="sm" class="mr-1.5" />
-              {{ logText('viewDetails') }}
+              {{ logText('viewConversation') }}
             </button>
           </template>
 
@@ -239,6 +256,8 @@
         :key="selectedLog.id"
         :request-body="selectedLog.request_body"
         :response-body="selectedLog.response_body"
+        :request-truncated="selectedLog.request_truncated"
+        :response-truncated="selectedLog.response_truncated"
         :i18n-prefix="conversationLogsI18nPrefix"
       />
 
@@ -290,7 +309,9 @@ import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
 import { adminConversationLogsAPI } from '@/api/admin/conversationLogs'
 import { conversationLogsAPI } from '@/api/conversationLogs'
 import type { ConversationLog, ConversationLogQueryParams } from '@/api/admin/conversationLogs'
+import { conversationLogSeed } from '@/utils/conversationLogSeed'
 import { parsePayload } from '@/utils/conversationPayload'
+import { buildConversationPreview, type ConversationPreview } from '@/utils/conversationPreview'
 import type { Column } from '@/components/common/types'
 import type { UsageRequestType } from '@/types'
 
@@ -300,6 +321,7 @@ const { t, locale } = useI18n()
 const appStore = useAppStore()
 const route = useRoute()
 const isAdminView = computed(() => route.path.startsWith('/admin/'))
+const isSeedPreview = computed(() => import.meta.env.DEV && route.query.seed === 'conversation-logs')
 const activeConversationLogsAPI = computed(() => isAdminView.value ? adminConversationLogsAPI : conversationLogsAPI)
 const conversationLogsI18nPrefix = computed(() => isAdminView.value ? 'admin.conversationLogs' : 'conversationLogs')
 
@@ -345,6 +367,10 @@ const filters = reactive<{
   stream: null
 })
 
+const logPreviews = computed(() => new Map(
+  logs.value.map((row) => [row.id, buildConversationPreview(row.request_body, row.response_body)])
+))
+
 let abortController: AbortController | null = null
 let searchTimer: number | null = null
 
@@ -356,6 +382,7 @@ const columns = computed<Column[]>(() => {
     items.push({ key: 'actor', label: logText('actor'), class: 'min-w-[220px]' })
   }
   items.push(
+    { key: 'conversation', label: logText('conversation'), class: 'min-w-[300px]' },
     { key: 'route', label: logText('route'), class: 'min-w-[220px]' },
     { key: 'model', label: logText('model'), class: 'min-w-[200px]' },
     { key: 'status_code', label: logText('status'), sortable: true, class: 'min-w-[110px]' },
@@ -390,6 +417,14 @@ const streamOptions = computed(() => [
 ])
 
 async function loadLogs() {
+  if (isSeedPreview.value) {
+    logs.value = conversationLogSeed
+    pagination.total = conversationLogSeed.length
+    pagination.page = 1
+    pagination.pages = 1
+    loading.value = false
+    return
+  }
   abortController?.abort()
   const controller = new AbortController()
   abortController = controller
@@ -481,6 +516,10 @@ function handleSort(key: string, order: SortOrder) {
 async function openDetail(row: ConversationLog) {
   selectedLog.value = row
   detailVisible.value = true
+  if (isSeedPreview.value) {
+    detailLoading.value = false
+    return
+  }
   detailLoading.value = true
   try {
     const detail = await activeConversationLogsAPI.value.getById(row.id)
@@ -542,6 +581,10 @@ function routeTitle(row: ConversationLog) {
     return row.inbound_endpoint || '-'
   }
   return [row.inbound_endpoint, row.upstream_endpoint].filter(Boolean).join(' -> ')
+}
+
+function previewFor(row: ConversationLog): ConversationPreview {
+  return logPreviews.value.get(row.id) || { text: '', messageCount: 0, operationCount: 0 }
 }
 
 function requestTypeLabel(type: UsageRequestType | string | null | undefined) {

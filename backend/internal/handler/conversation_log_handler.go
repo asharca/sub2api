@@ -86,7 +86,7 @@ func (h *ConversationLogHandler) ListMine(c *gin.Context) {
 	}
 	out := make([]userConversationLogResponse, 0, len(items))
 	for i := range items {
-		out = append(out, conversationLogToUserResponse(&items[i]))
+		out = append(out, conversationLogToUserListResponse(&items[i]))
 	}
 	response.Paginated(c, out, result.Total, result.Page, result.PageSize)
 }
@@ -216,6 +216,13 @@ func conversationLogToUserResponse(log *service.ConversationLog) userConversatio
 		CreatedAt:         log.CreatedAt.Format(time.RFC3339),
 		TotalTokens:       log.InputTokens + log.OutputTokens + log.CacheReadTokens + log.CacheCreateTokens,
 	}
+}
+
+func conversationLogToUserListResponse(log *service.ConversationLog) userConversationLogResponse {
+	result := conversationLogToUserResponse(log)
+	result.RequestBody = ""
+	result.ResponseBody = ""
+	return result
 }
 
 func cloneConversationLogIntPtr(src *int) *int {
