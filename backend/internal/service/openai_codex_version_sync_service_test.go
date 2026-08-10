@@ -70,7 +70,7 @@ type codexVersionSyncGitHubStub struct {
 	calls    int
 }
 
-func (c *codexVersionSyncGitHubStub) FetchLatestRelease(_ context.Context, _ string) (*GitHubRelease, error) {
+func (c *codexVersionSyncGitHubStub) FetchLatestRelease(_ context.Context, _, _ string) (*GitHubRelease, error) {
 	c.latestCalls++
 	if c.latestErr != nil {
 		return nil, c.latestErr
@@ -78,7 +78,7 @@ func (c *codexVersionSyncGitHubStub) FetchLatestRelease(_ context.Context, _ str
 	return c.latest, nil
 }
 
-func (c *codexVersionSyncGitHubStub) FetchRecentReleases(_ context.Context, _ string, _ int) ([]*GitHubRelease, error) {
+func (c *codexVersionSyncGitHubStub) FetchRecentReleases(_ context.Context, _, _ string, _ int) ([]*GitHubRelease, error) {
 	c.calls++
 	if c.err != nil {
 		return nil, c.err
@@ -327,14 +327,14 @@ func TestGetOpenAICodexClientVersionFallsBackOnError(t *testing.T) {
 	require.Equal(t, codexCLIVersion, svc.GetOpenAICodexClientVersion(context.Background()))
 }
 
-// 规范 UA：面板未填完整 UA 时按当前生效版本号拼出标准 CLI 形态。
+// 规范 UA：面板未填完整 UA 时按当前生效版本号拼出标准 TUI 形态。
 func TestGetOpenAICodexCanonicalUserAgentBuildsFromVersion(t *testing.T) {
 	svc := NewSettingService(&codexVersionSettingRepoStub{values: map[string]string{
 		SettingKeyOpenAICodexClientVersionSynced: "0.200.1",
 	}}, nil)
 
 	require.Equal(t,
-		"codex_cli_rs/0.200.1"+codexCLIUserAgentSuffix,
+		"codex-tui/0.200.1"+codexCLIUserAgentSuffix,
 		svc.GetOpenAICodexCanonicalUserAgent(context.Background()),
 	)
 }
@@ -364,6 +364,18 @@ func TestGetOpenAICodexCanonicalUserAgentRebuildsPanelUAVersion(t *testing.T) {
 
 		require.Equal(t,
 			"codex_cli_rs/0.200.1 (Mac OS X 15.1.0; arm64) iTerm.app",
+			svc.GetOpenAICodexCanonicalUserAgent(context.Background()),
+		)
+	})
+
+	t.Run("TUI UA 的首尾两个版本号同时更新", func(t *testing.T) {
+		svc := NewSettingService(&codexVersionSettingRepoStub{values: map[string]string{
+			SettingKeyOpenAICodexUserAgent:           "codex-tui/0.146.1 (Ubuntu 22.4.0; x86_64) WindowsTerminal (codex-tui; 0.146.1)",
+			SettingKeyOpenAICodexClientVersionSynced: "0.200.1",
+		}}, nil)
+
+		require.Equal(t,
+			"codex-tui/0.200.1 (Ubuntu 22.4.0; x86_64) WindowsTerminal (codex-tui; 0.200.1)",
 			svc.GetOpenAICodexCanonicalUserAgent(context.Background()),
 		)
 	})
