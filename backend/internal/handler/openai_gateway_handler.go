@@ -331,7 +331,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Request body is empty")
 		return
 	}
-	conversationCapture := startConversationResponseCapture(c, h.conversationLogService)
+	conversationCapture := startConversationResponseCapture(c, h.conversationLogService, body)
 	defer conversationCapture.Restore(c)
 
 	setOpsRequestContext(c, "", false)
@@ -1012,7 +1012,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 		h.anthropicErrorResponse(c, http.StatusBadRequest, "invalid_request_error", "Request body is empty")
 		return
 	}
-	conversationCapture := startConversationResponseCapture(c, h.conversationLogService)
+	conversationCapture := startConversationResponseCapture(c, h.conversationLogService, body)
 	defer conversationCapture.Restore(c)
 
 	if !gjson.ValidBytes(body) {
@@ -2120,6 +2120,40 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		maxReasoningEffort, reasoningEffortMappings, _ := openAIReasoningEffortPolicyForRequest(c, apiKey)
 		var requestPayloadHash string
 		conversationWSCapture := newConversationWSLogCapture(h.conversationLogService)
+		var conversationWSResult *service.OpenAIForwardResult
+		conversationWSRequestedModel := reqModel
+		conversationWSInboundEndpoint := ""
+		conversationWSUpstreamEndpoint := ""
+		addConversationWSTurn := func(requestedModel, inboundEndpoint, upstreamEndpoint string, result *service.OpenAIForwardResult) {
+			if result == nil {
+				return
+			}
+			if conversationWSResult == nil {
+				copyResult := *result
+				copyResult.ResponseHeaders = nil
+				copyResult.FirstTokenMs = cloneIntPtr(result.FirstTokenMs)
+				copyResult.OpenAIWSMode = true
+				conversationWSResult = &copyResult
+			} else {
+				conversationWSResult.RequestID = result.RequestID
+				conversationWSResult.ResponseID = result.ResponseID
+				conversationWSResult.Model = result.Model
+				conversationWSResult.UpstreamModel = result.UpstreamModel
+				conversationWSResult.Duration += result.Duration
+				conversationWSResult.Usage.InputTokens += result.Usage.InputTokens
+				conversationWSResult.Usage.OutputTokens += result.Usage.OutputTokens
+				conversationWSResult.Usage.CacheCreationInputTokens += result.Usage.CacheCreationInputTokens
+				conversationWSResult.Usage.CacheReadInputTokens += result.Usage.CacheReadInputTokens
+				if result.FirstTokenMs != nil && (conversationWSResult.FirstTokenMs == nil || *result.FirstTokenMs < *conversationWSResult.FirstTokenMs) {
+					conversationWSResult.FirstTokenMs = cloneIntPtr(result.FirstTokenMs)
+				}
+			}
+			if requestedModel != "" {
+				conversationWSRequestedModel = requestedModel
+			}
+			conversationWSInboundEndpoint = inboundEndpoint
+			conversationWSUpstreamEndpoint = upstreamEndpoint
+		}
 		var turnStartsMu sync.Mutex
 		turnStarts := make(map[int]time.Time, 4)
 		recordTurnStart := func(turn int, startedAt time.Time) {
@@ -2247,7 +2281,6 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				// CyberBlocked 必须在 submit 前同步预捕获（task 闭包由 worker 池异步执行，
 				// 届时 defer 已清除标记）。
 				defer clearCyberPolicyTurnState(c)
-				defer conversationWSCapture.Forget(turn)
 				releaseTurnSlots()
 				turnRequestedModel := reqModel
 				turnUpstreamModel := ""
@@ -2339,24 +2372,29 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 						)
 					}
 				})
-				requestBody, requestedModel, responseBody, responseTruncated := conversationWSCapture.Snapshot(turn)
-				requestHash := requestPayloadHash
-				if len(requestBody) > 0 {
-					requestHash = service.HashUsageRequestPayload(requestBody)
-				}
-				requestedModelForLog := openAIWSConversationLogRequestedModel(turnRequestedModel, requestedModel, turnMapping)
-				submitOpenAIConversationLog(ctx, h.conversationLogService, conversationLogBaseInput{
-					Body:                      requestBody,
-					APIKey:                    apiKey,
-					Account:                   account,
-					InboundEndpoint:           inboundEndpoint,
-					UpstreamEndpoint:          upstreamEndpoint,
-					StatusCode:                http.StatusSwitchingProtocols,
-					RequestHash:               requestHash,
-					ResponseBodyOverride:      &responseBody,
-					ResponseTruncatedOverride: responseTruncated,
-				}, requestedModelForLog, result)
+				requestedModelForLog := openAIWSConversationLogRequestedModel(turnRequestedModel, "", turnMapping)
+				addConversationWSTurn(requestedModelForLog, inboundEndpoint, upstreamEndpoint, result)
 			},
+		}
+		submitWSConversationLog := func() {
+			if conversationWSResult == nil {
+				return
+			}
+			requestBody, responseBody := conversationWSCapture.SnapshotSession()
+			requestHash := requestPayloadHash
+			if len(requestBody) > 0 {
+				requestHash = service.HashUsageRequestPayload(requestBody)
+			}
+			submitOpenAIConversationLog(ctx, h.conversationLogService, conversationLogBaseInput{
+				Body:                 requestBody,
+				APIKey:               apiKey,
+				Account:              account,
+				InboundEndpoint:      conversationWSInboundEndpoint,
+				UpstreamEndpoint:     conversationWSUpstreamEndpoint,
+				StatusCode:           http.StatusSwitchingProtocols,
+				RequestHash:          requestHash,
+				ResponseBodyOverride: &responseBody,
+			}, conversationWSRequestedModel, conversationWSResult)
 		}
 
 		wsFirstMessage := wsAttemptMessage
@@ -2375,7 +2413,9 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		// WebSocket 首包可能很大，hash 必须在 hooks 外算成字符串，避免 AfterTurn 闭包保活请求体。
 		requestPayloadHash = service.HashUsageRequestPayload(wsFirstMessage)
 
-		if err := h.gatewayService.ProxyResponsesWebSocketFromClient(ctx, c, wsConn, account, token, wsFirstMessage, hooks); err != nil {
+		err = h.gatewayService.ProxyResponsesWebSocketFromClient(ctx, c, wsConn, account, token, wsFirstMessage, hooks)
+		submitWSConversationLog()
+		if err != nil {
 			var failoverErr *service.UpstreamFailoverError
 			if errors.As(err, &failoverErr) {
 				retryPayload, retryCurrentTurn := service.OpenAIWSCurrentTurnRetryPayload(err)

@@ -113,9 +113,10 @@ func RegisterUserRoutes(
 		}
 
 		// 对话记录（普通用户只能查看自己的记录）
-		conversationLogs := authenticated.Group("/conversation-logs")
-		{
-			conversationLogs.GET("", h.ConversationLog.ListMine)
+	conversationLogs := authenticated.Group("/conversation-logs")
+	{
+		conversationLogs.GET("/stream", h.ConversationLog.StreamMine)
+		conversationLogs.GET("", h.ConversationLog.ListMine)
 			conversationLogs.GET("/:id", h.ConversationLog.GetMineByID)
 		}
 

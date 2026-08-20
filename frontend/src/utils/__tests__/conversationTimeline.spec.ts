@@ -49,6 +49,25 @@ describe('buildConversationTimeline', () => {
     expect(timeline.rounds[0].messages.at(-1)?.parts[0].text).toBe('hello')
   })
 
+  it('keeps an aggregated WebSocket session in turn order', () => {
+    const timeline = buildConversationTimeline(
+      JSON.stringify({ conversation_turns: [
+        { turn: 1, request: { type: 'response.create', input: 'first' } },
+        { turn: 2, request: { type: 'response.create', input: 'second' } }
+      ] }),
+      JSON.stringify({ conversation_turns: [
+        { turn: 1, response: [{ type: 'response.output_text.delta', delta: 'one' }] },
+        { turn: 2, response: [{ type: 'response.output_text.delta', delta: 'two' }] }
+      ] })
+    )
+
+    expect(timeline.rounds).toHaveLength(2)
+    expect(timeline.rounds.map((round) => round.messages.map((message) => message.parts[0]?.text))).toEqual([
+      ['first', 'one'],
+      ['second', 'two']
+    ])
+  })
+
   it('normalizes Anthropic tool blocks', () => {
     const timeline = buildConversationTimeline(
       JSON.stringify({

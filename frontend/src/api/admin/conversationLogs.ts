@@ -3,6 +3,7 @@ import type { PaginatedResponse, UsageRequestType } from '@/types'
 
 export interface ConversationLog {
   id: number
+  live_id?: string
   request_id: string
   response_id: string
   user_id: number
@@ -53,6 +54,7 @@ export interface ConversationLogQueryParams {
   response_id?: string
   request_type?: UsageRequestType
   stream?: boolean
+  upstream_model_mismatch?: boolean
   start_date?: string
   end_date?: string
   timezone?: string

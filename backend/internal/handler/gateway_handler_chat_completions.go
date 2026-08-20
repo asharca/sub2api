@@ -58,7 +58,7 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 		h.chatCompletionsErrorResponse(c, http.StatusBadRequest, "invalid_request_error", "Request body is empty")
 		return
 	}
-	conversationCapture := startConversationResponseCapture(c, h.conversationLogService)
+	conversationCapture := startConversationResponseCapture(c, h.conversationLogService, body)
 	defer conversationCapture.Restore(c)
 
 	setOpsRequestContext(c, "", false)

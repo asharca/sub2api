@@ -1,9 +1,9 @@
 <template>
   <div :class="flat ? 'p-4 sm:p-6' : 'card p-6'">
     <!-- Toolbar: left filters (multi-line) + right actions -->
-    <div class="flex flex-wrap items-end justify-between gap-4">
+    <div :class="mode === 'conversation' ? 'flex flex-wrap items-end gap-4' : 'flex flex-wrap items-end justify-between gap-4'">
       <!-- Left: filters (allowed to wrap to multiple rows) -->
-      <div class="flex flex-1 flex-wrap items-end gap-4">
+      <div :class="mode === 'conversation' ? 'contents' : 'flex flex-1 flex-wrap items-end gap-4'">
         <!-- User Search -->
         <div ref="userSearchRef" class="usage-filter-dropdown relative w-full sm:w-auto sm:min-w-[240px]">
           <label class="input-label">{{ t('admin.usage.userFilter') }}</label>
@@ -127,8 +127,8 @@
           <Select v-model="filters.request_type" :options="requestTypeOptions" @change="emitChange" />
         </div>
 
-        <!-- Billing Type Filter (usage only) -->
-        <div v-if="mode !== 'errors'" class="w-full sm:w-auto sm:min-w-[200px]">
+        <!-- Billing filters only apply to usage rows. Conversation logs do not persist billing data. -->
+        <div v-if="mode === 'usage' || mode === 'ranking'" class="w-full sm:w-auto sm:min-w-[200px]">
           <label class="input-label">{{ t('admin.usage.billingType') }}</label>
           <Select v-model="filters.billing_type" :options="billingTypeOptions" @change="emitChange" />
         </div>
@@ -139,7 +139,7 @@
           <Select v-model="filters.billing_mode" :options="billingModeOptions" @change="emitChange" />
         </div>
 
-        <div v-if="mode === 'usage'" class="w-full sm:w-auto sm:min-w-[220px]">
+        <div v-if="mode === 'usage' || mode === 'conversation'" class="w-full sm:w-auto sm:min-w-[220px]">
           <label class="input-label">{{ t('admin.usage.upstreamModelAudit') }}</label>
           <Select v-model="filters.upstream_model_mismatch" :options="upstreamModelMismatchOptions" @change="emitChange" />
         </div>
@@ -168,10 +168,16 @@
           <Select v-model="filters.group_id" :options="groupOptions" searchable @change="emitChange" />
         </div>
 
+        <slot name="extra-filters" />
+
       </div>
 
       <!-- Right: actions -->
-      <div v-if="showActions" class="flex w-full flex-wrap items-center justify-end gap-3 sm:w-auto">
+      <div
+        v-if="showActions"
+        :class="mode === 'conversation' ? 'ml-auto flex flex-wrap items-center gap-3' : 'flex w-full flex-wrap items-center justify-end gap-3 sm:w-auto'"
+      >
+        <slot name="before-actions" />
         <button type="button" @click="$emit('refresh')" class="btn btn-secondary">
           {{ t('common.refresh') }}
         </button>
@@ -213,7 +219,7 @@ interface Props {
    * errors 模式:隐藏用量专属字段/按钮,显示错误类型+状态码(错误请求 tab 用)
    * ranking 模式:同 usage 但隐藏计费模式筛选与清理/导出按钮(用户排行 tab 用)
    */
-  mode?: 'usage' | 'errors' | 'ranking'
+  mode?: 'usage' | 'errors' | 'ranking' | 'conversation'
   /** 嵌入统一卡片内使用：去掉自身卡片外观 */
   flat?: boolean
 }

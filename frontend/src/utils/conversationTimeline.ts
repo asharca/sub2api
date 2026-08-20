@@ -53,6 +53,8 @@ const ROLE_ALIASES: Record<string, ConversationRole> = {
 export function buildConversationTimeline(requestBody: string, responseBody: string): ConversationTimeline {
   const request = parsePayload(requestBody)
   const response = parsePayload(responseBody)
+  const webSocketTimeline = buildWebSocketTimeline(request, response)
+  if (webSocketTimeline) return webSocketTimeline
   const messages = [
     ...extractRequestMessages(request),
     ...extractResponseMessages(response)
@@ -87,6 +89,55 @@ export function buildConversationTimeline(requestBody: string, responseBody: str
     operationCount: messages.reduce((count, message) => count + message.operations.length, 0),
     structured: request.parsed || response.parsed
   }
+}
+
+function buildWebSocketTimeline(request: ParsedPayload, response: ParsedPayload): ConversationTimeline | null {
+  const requestTurns = extractConversationTurns(request, 'request')
+  const responseTurns = extractConversationTurns(response, 'response')
+  if (requestTurns.length === 0 && responseTurns.length === 0) return null
+
+  const turns = new Map<number, { request?: unknown; response?: unknown }>()
+  for (const turn of requestTurns) {
+    turns.set(turn.index, { ...(turns.get(turn.index) || {}), request: turn.payload })
+  }
+  for (const turn of responseTurns) {
+    turns.set(turn.index, { ...(turns.get(turn.index) || {}), response: turn.payload })
+  }
+
+  const rounds = [...turns.entries()]
+    .sort(([left], [right]) => left - right)
+    .map(([index, turn]) => ({
+      id: `round-${index}`,
+      index,
+      messages: [
+        ...(turn.request === undefined ? [] : extractRequestMessages(asJSONPayload(turn.request))),
+        ...(turn.response === undefined ? [] : extractResponseMessages(asJSONPayload(turn.response)))
+      ]
+    }))
+    .filter((round) => round.messages.length > 0)
+  const messages = rounds.flatMap((round) => round.messages)
+  linkOperationNames(messages)
+  return {
+    rounds,
+    messageCount: messages.length,
+    operationCount: messages.reduce((count, message) => count + message.operations.length, 0),
+    structured: true
+  }
+}
+
+function extractConversationTurns(payload: ParsedPayload, key: 'request' | 'response') {
+  if (!payload.parsed || payload.format !== 'json') return []
+  const turns = asArray(asRecord(payload.value)?.conversation_turns)
+  return turns.flatMap((value, offset) => {
+    const turn = asRecord(value)
+    if (!turn || turn[key] === undefined) return []
+    const index = Number(turn.turn)
+    return [{ index: Number.isInteger(index) && index > 0 ? index : offset + 1, payload: turn[key] }]
+  })
+}
+
+function asJSONPayload(value: unknown): ParsedPayload {
+  return { parsed: true, format: 'json', value, raw: JSON.stringify(value) || '' }
 }
 
 function linkOperationNames(messages: ConversationMessage[]) {
@@ -164,6 +215,10 @@ function extractResponseMessages(payload: ParsedPayload): ConversationMessage[] 
 
   if (payload.format === 'sse') {
     return extractSseMessages(payload.value.events)
+  }
+
+  if (Array.isArray(payload.value)) {
+    return extractSseMessages(payload.value.map((data, index) => ({ index: index + 1, data })))
   }
 
   const value = asRecord(payload.value)

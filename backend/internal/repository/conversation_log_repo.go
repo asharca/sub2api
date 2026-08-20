@@ -27,7 +27,7 @@ func (r *conversationLogRepository) Create(ctx context.Context, log *service.Con
 	if log.GroupID != nil {
 		groupID = *log.GroupID
 	}
-	_, err := r.db.ExecContext(ctx, `
+	err := r.db.QueryRowContext(ctx, `
 INSERT INTO conversation_logs (
     request_id, response_id, user_id, api_key_id, account_id, group_id,
     platform, inbound_endpoint, upstream_endpoint, model, requested_model, upstream_model,
@@ -40,13 +40,13 @@ INSERT INTO conversation_logs (
     $13, $14, $15, $16, $17, $18,
     $19, $20, $21, $22,
     $23, $24, $25, $26, $27, $28
-)`,
+) RETURNING id, created_at`,
 		log.RequestID, log.ResponseID, log.UserID, log.APIKeyID, log.AccountID, groupID,
 		log.Platform, log.InboundEndpoint, log.UpstreamEndpoint, log.Model, log.RequestedModel, log.UpstreamModel,
 		int16(log.RequestType.Normalize()), log.Stream, log.OpenAIWSMode, log.StatusCode, nullableIntPtr(log.DurationMs), nullableIntPtr(log.FirstTokenMs),
 		log.InputTokens, log.OutputTokens, log.CacheReadTokens, log.CacheCreateTokens,
 		log.RequestHash, log.RequestBody, log.ResponseBody, log.RequestTruncated, log.ResponseTruncated, nullableIntPtr(log.QueueDelayMs),
-	)
+	).Scan(&log.ID, &log.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("insert conversation log: %w", err)
 	}
@@ -235,6 +235,14 @@ func buildConversationLogWhere(filters service.ConversationLogFilters) (string, 
 	}
 	if filters.Stream != nil {
 		add("cl.stream = $%d", *filters.Stream)
+	}
+	if filters.UpstreamModelMismatch != nil {
+		mismatch := "COALESCE(NULLIF(cl.upstream_model, ''), NULLIF(cl.model, ''), '') <> COALESCE(NULLIF(cl.model, ''), NULLIF(cl.requested_model, ''), '')"
+		if *filters.UpstreamModelMismatch {
+			clauses = append(clauses, mismatch)
+		} else {
+			clauses = append(clauses, "NOT ("+mismatch+")")
+		}
 	}
 	if filters.StartTime != nil {
 		add("cl.created_at >= $%d", *filters.StartTime)

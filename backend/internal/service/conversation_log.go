@@ -35,6 +35,7 @@ type ConversationLogRepository interface {
 
 type ConversationLog struct {
 	ID                int64
+	LiveID            string
 	RequestID         string
 	ResponseID        string
 	UserID            int64
@@ -72,19 +73,20 @@ type ConversationLog struct {
 }
 
 type ConversationLogFilters struct {
-	Search      string
-	UserID      int64
-	APIKeyID    int64
-	AccountID   int64
-	GroupID     int64
-	Platform    string
-	Model       string
-	RequestID   string
-	ResponseID  string
-	RequestType *int16
-	Stream      *bool
-	StartTime   *time.Time
-	EndTime     *time.Time
+	Search                string
+	UserID                int64
+	APIKeyID              int64
+	AccountID             int64
+	GroupID               int64
+	Platform              string
+	Model                 string
+	RequestID             string
+	ResponseID            string
+	RequestType           *int16
+	Stream                *bool
+	UpstreamModelMismatch *bool
+	StartTime             *time.Time
+	EndTime               *time.Time
 }
 
 type ConversationLogStats struct {
@@ -99,25 +101,29 @@ type ConversationLogStats struct {
 }
 
 type ConversationLogService struct {
-	repo             ConversationLogRepository
-	mu               sync.RWMutex
-	enabled          bool
-	workerCount      int
-	queueSize        int
-	storeRequest     bool
-	storeResponse    bool
-	maxRequestBytes  int
-	maxResponseBytes int
-	taskTimeout      time.Duration
-	overflowPolicy   string
-	pool             pond.Pool
-	submittedTasks   atomic.Uint64
-	completedTasks   atomic.Uint64
-	failedTasks      atomic.Uint64
-	droppedTasks     atomic.Uint64
-	droppedQueueFull atomic.Uint64
-	syncFallback     atomic.Uint64
-	lastDropLogNanos atomic.Int64
+	repo                 ConversationLogRepository
+	mu                   sync.RWMutex
+	liveMu               sync.Mutex
+	liveSubscribers      map[uint64]chan ConversationLog
+	nextLiveSubscriberID uint64
+	nextLiveEventID      atomic.Int64
+	enabled              bool
+	workerCount          int
+	queueSize            int
+	storeRequest         bool
+	storeResponse        bool
+	maxRequestBytes      int
+	maxResponseBytes     int
+	taskTimeout          time.Duration
+	overflowPolicy       string
+	pool                 pond.Pool
+	submittedTasks       atomic.Uint64
+	completedTasks       atomic.Uint64
+	failedTasks          atomic.Uint64
+	droppedTasks         atomic.Uint64
+	droppedQueueFull     atomic.Uint64
+	syncFallback         atomic.Uint64
+	lastDropLogNanos     atomic.Int64
 }
 
 func NewConversationLogService(repo ConversationLogRepository, cfg *config.Config) *ConversationLogService {
@@ -243,9 +249,42 @@ func (s *ConversationLogService) Stop() {
 	s.enabled = false
 	s.mu.Unlock()
 	if pool == nil {
+		s.closeLiveSubscribers()
 		return
 	}
 	pool.StopAndWait()
+	s.closeLiveSubscribers()
+}
+
+// SubscribeLive receives live request updates. The short buffer isolates the
+// writer pool from a slow browser; missed events remain available through List.
+func (s *ConversationLogService) SubscribeLive() (<-chan ConversationLog, func()) {
+	if s == nil {
+		ch := make(chan ConversationLog)
+		close(ch)
+		return ch, func() {}
+	}
+	ch := make(chan ConversationLog, 32)
+	s.liveMu.Lock()
+	if s.liveSubscribers == nil {
+		s.liveSubscribers = make(map[uint64]chan ConversationLog)
+	}
+	s.nextLiveSubscriberID++
+	id := s.nextLiveSubscriberID
+	s.liveSubscribers[id] = ch
+	s.liveMu.Unlock()
+
+	var once sync.Once
+	return ch, func() {
+		once.Do(func() {
+			s.liveMu.Lock()
+			if current, ok := s.liveSubscribers[id]; ok {
+				delete(s.liveSubscribers, id)
+				close(current)
+			}
+			s.liveMu.Unlock()
+		})
+	}
 }
 
 func (s *ConversationLogService) List(ctx context.Context, params pagination.PaginationParams, filters ConversationLogFilters) ([]ConversationLog, *pagination.PaginationResult, error) {
@@ -260,6 +299,12 @@ func (s *ConversationLogService) GetByID(ctx context.Context, id int64) (*Conver
 		return nil, ErrConversationLogNotFound
 	}
 	return s.repo.GetByID(ctx, id)
+}
+
+// PublishLive sends a transient update without persisting it. It is used when
+// a streamed request starts, then Submit publishes the saved final record.
+func (s *ConversationLogService) PublishLive(log *ConversationLog) {
+	s.publishLive(log)
 }
 
 func (s *ConversationLogService) Stats() ConversationLogStats {
@@ -311,6 +356,85 @@ func (s *ConversationLogService) execute(enqueuedAt time.Time, log *Conversation
 		return
 	}
 	s.completedTasks.Add(1)
+	s.publishLive(log)
+}
+
+func (s *ConversationLogService) publishLive(log *ConversationLog) {
+	if s == nil || log == nil {
+		return
+	}
+	item := *log
+	if item.ID == 0 {
+		item.ID = -s.nextLiveEventID.Add(1)
+	}
+	item.GroupID = cloneConversationLogInt64Ptr(log.GroupID)
+	item.DurationMs = cloneConversationLogIntPtr(log.DurationMs)
+	item.FirstTokenMs = cloneConversationLogIntPtr(log.FirstTokenMs)
+	item.QueueDelayMs = cloneConversationLogIntPtr(log.QueueDelayMs)
+
+	// ponytail: in-process only; use Redis pub/sub when one live feed must span multiple instances.
+	s.liveMu.Lock()
+	defer s.liveMu.Unlock()
+	for _, subscriber := range s.liveSubscribers {
+		select {
+		case subscriber <- item:
+		default:
+		}
+	}
+}
+
+func (s *ConversationLogService) closeLiveSubscribers() {
+	if s == nil {
+		return
+	}
+	s.liveMu.Lock()
+	for id, subscriber := range s.liveSubscribers {
+		delete(s.liveSubscribers, id)
+		close(subscriber)
+	}
+	s.liveMu.Unlock()
+}
+
+func ConversationLogMatches(log ConversationLog, filters ConversationLogFilters) bool {
+	if filters.UserID > 0 && log.UserID != filters.UserID ||
+		filters.APIKeyID > 0 && log.APIKeyID != filters.APIKeyID ||
+		filters.AccountID > 0 && log.AccountID != filters.AccountID ||
+		filters.GroupID > 0 && (log.GroupID == nil || *log.GroupID != filters.GroupID) ||
+		filters.Platform != "" && log.Platform != filters.Platform ||
+		filters.RequestType != nil && int16(log.RequestType.Normalize()) != *filters.RequestType ||
+		filters.Stream != nil && log.Stream != *filters.Stream ||
+		filters.StartTime != nil && log.CreatedAt.Before(*filters.StartTime) ||
+		filters.EndTime != nil && !log.CreatedAt.Before(*filters.EndTime) {
+		return false
+	}
+	model := strings.ToLower(strings.TrimSpace(filters.Model))
+	if model != "" && !strings.Contains(strings.ToLower(strings.Join([]string{log.Model, log.RequestedModel, log.UpstreamModel}, " ")), model) {
+		return false
+	}
+	query := strings.ToLower(strings.TrimSpace(filters.Search))
+	if query == "" {
+		return true
+	}
+	return strings.Contains(strings.ToLower(strings.Join([]string{
+		log.RequestID, log.ResponseID, log.Model, log.RequestedModel, log.UpstreamModel,
+		log.RequestHash, log.UserEmail, log.APIKeyName, log.AccountName,
+	}, " ")), query)
+}
+
+func cloneConversationLogIntPtr(src *int) *int {
+	if src == nil {
+		return nil
+	}
+	value := *src
+	return &value
+}
+
+func cloneConversationLogInt64Ptr(src *int64) *int64 {
+	if src == nil {
+		return nil
+	}
+	value := *src
+	return &value
 }
 
 func (s *ConversationLogService) drop(reason string) {

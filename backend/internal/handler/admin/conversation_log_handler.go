@@ -1,6 +1,8 @@
 package admin
 
 import (
+	"encoding/json"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -22,6 +24,7 @@ func NewConversationLogHandler(conversationLogService *service.ConversationLogSe
 
 type conversationLogResponse struct {
 	ID                int64  `json:"id"`
+	LiveID            string `json:"live_id"`
 	RequestID         string `json:"request_id"`
 	ResponseID        string `json:"response_id"`
 	UserID            int64  `json:"user_id"`
@@ -82,6 +85,49 @@ func (h *ConversationLogHandler) List(c *gin.Context) {
 	response.Paginated(c, out, result.Total, result.Page, result.PageSize)
 }
 
+// Stream pushes newly persisted records. Payload bodies are exposed only on
+// this explicitly opened admin stream; the regular list remains summary-only.
+func (h *ConversationLogHandler) Stream(c *gin.Context) {
+	filters, ok := parseConversationLogFilters(c)
+	if !ok {
+		return
+	}
+	events, unsubscribe := h.conversationLogService.SubscribeLive()
+	defer unsubscribe()
+
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Header("X-Accel-Buffering", "no")
+	c.Status(http.StatusOK)
+	c.Writer.Flush()
+
+	keepalive := time.NewTicker(20 * time.Second)
+	defer keepalive.Stop()
+	for {
+		select {
+		case <-c.Request.Context().Done():
+			return
+		case item, open := <-events:
+			if !open {
+				return
+			}
+			if !service.ConversationLogMatches(item, filters) {
+				continue
+			}
+			data, err := json.Marshal(conversationLogToResponse(&item))
+			if err != nil {
+				continue
+			}
+			_, _ = c.Writer.WriteString("event: conversation_log\ndata: " + string(data) + "\n\n")
+			c.Writer.Flush()
+		case <-keepalive.C:
+			_, _ = c.Writer.WriteString(": keep-alive\n\n")
+			c.Writer.Flush()
+		}
+	}
+}
+
 func (h *ConversationLogHandler) GetByID(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil || id <= 0 {
@@ -134,6 +180,14 @@ func parseConversationLogFilters(c *gin.Context) (service.ConversationLogFilters
 		}
 		filters.Stream = &parsed
 	}
+	if mismatchStr := strings.TrimSpace(c.Query("upstream_model_mismatch")); mismatchStr != "" {
+		parsed, err := strconv.ParseBool(mismatchStr)
+		if err != nil {
+			response.BadRequest(c, "Invalid upstream_model_mismatch value, use true or false")
+			return filters, false
+		}
+		filters.UpstreamModelMismatch = &parsed
+	}
 	userTZ := c.Query("timezone")
 	if startDateStr := strings.TrimSpace(c.Query("start_date")); startDateStr != "" {
 		t, err := timezone.ParseInUserLocation("2006-01-02", startDateStr, userTZ)
@@ -174,6 +228,7 @@ func conversationLogToResponse(log *service.ConversationLog) conversationLogResp
 	}
 	return conversationLogResponse{
 		ID:                log.ID,
+		LiveID:            log.LiveID,
 		RequestID:         log.RequestID,
 		ResponseID:        log.ResponseID,
 		UserID:            log.UserID,

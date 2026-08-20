@@ -4,27 +4,45 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
+	"net/http"
+	"sort"
 	"strings"
 	"sync"
 	"time"
 
+	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
+	"github.com/tidwall/gjson"
 )
+
+type conversationLogLiveContextKey struct{}
 
 type conversationResponseCapture struct {
 	gin.ResponseWriter
-	body      []byte
-	truncated bool
+	body        []byte
+	truncated   bool
+	context     *gin.Context
+	service     *service.ConversationLogService
+	requestBody []byte
+	liveOnce    sync.Once
 }
 
-func startConversationResponseCapture(c *gin.Context, svc *service.ConversationLogService) *conversationResponseCapture {
+func startConversationResponseCapture(c *gin.Context, svc *service.ConversationLogService, requestBody ...[]byte) *conversationResponseCapture {
 	if c == nil || svc == nil || !svc.Enabled() || !svc.StoreResponse() {
 		return nil
+	}
+	body := []byte(nil)
+	if len(requestBody) > 0 {
+		body = append(body, requestBody[0]...)
 	}
 	capture := &conversationResponseCapture{
 		ResponseWriter: c.Writer,
 		body:           make([]byte, 0, 4096),
+		context:        c,
+		service:        svc,
+		requestBody:    body,
 	}
 	c.Writer = capture
 	return capture
@@ -60,6 +78,7 @@ func (w *conversationResponseCapture) capture(data []byte) {
 	if w == nil || len(data) == 0 {
 		return
 	}
+	w.publishLiveStart()
 	w.body = append(w.body, data...)
 }
 
@@ -67,7 +86,46 @@ func (w *conversationResponseCapture) captureString(s string) {
 	if w == nil || s == "" {
 		return
 	}
+	w.publishLiveStart()
 	w.body = append(w.body, s...)
+}
+
+func (w *conversationResponseCapture) publishLiveStart() {
+	if w == nil || w.context == nil || w.service == nil || len(w.requestBody) == 0 {
+		return
+	}
+	w.liveOnce.Do(func() {
+		if status := w.ResponseWriter.Status(); status < http.StatusOK || status >= http.StatusMultipleChoices {
+			return
+		}
+		apiKey, ok := middleware2.GetAPIKeyFromContext(w.context)
+		if !ok || apiKey == nil {
+			return
+		}
+		liveID := fmt.Sprintf("live-%d", time.Now().UnixNano())
+		w.context.Request = w.context.Request.WithContext(context.WithValue(w.context.Request.Context(), conversationLogLiveContextKey{}, liveID))
+		requestBody, requestTruncated := w.service.CaptureRequestBody(w.requestBody)
+		model := strings.TrimSpace(gjson.GetBytes(w.requestBody, "model").String())
+		stream := gjson.GetBytes(w.requestBody, "stream").Bool()
+		log := &service.ConversationLog{
+			LiveID:           liveID,
+			UserID:           conversationLogUserID(apiKey),
+			APIKeyID:         apiKey.ID,
+			GroupID:          cloneInt64Ptr(apiKey.GroupID),
+			InboundEndpoint:  GetInboundEndpoint(w.context),
+			Model:            model,
+			RequestedModel:   model,
+			RequestType:      service.RequestTypeFromLegacy(stream, false),
+			Stream:           stream,
+			StatusCode:       http.StatusProcessing,
+			RequestHash:      service.HashUsageRequestPayload(w.requestBody),
+			RequestBody:      requestBody,
+			RequestTruncated: requestTruncated,
+			CreatedAt:        time.Now(),
+		}
+		populateConversationLogDisplayFields(log, apiKey, nil)
+		w.service.PublishLive(log)
+	})
 }
 
 type conversationLogBaseInput struct {
@@ -83,6 +141,11 @@ type conversationLogBaseInput struct {
 	ResponseTruncatedOverride bool
 }
 
+func conversationLogLiveID(ctx context.Context) string {
+	liveID, _ := ctx.Value(conversationLogLiveContextKey{}).(string)
+	return liveID
+}
+
 func submitAnthropicConversationLog(
 	parent context.Context,
 	svc *service.ConversationLogService,
@@ -96,6 +159,7 @@ func submitAnthropicConversationLog(
 	responseBody, responseTruncated := base.Capture.Snapshot()
 	durationMs := durationMsPtr(result.Duration)
 	log := &service.ConversationLog{
+		LiveID:            conversationLogLiveID(parent),
 		RequestID:         result.RequestID,
 		UserID:            conversationLogUserID(base.APIKey),
 		APIKeyID:          base.APIKey.ID,
@@ -122,6 +186,7 @@ func submitAnthropicConversationLog(
 		RequestTruncated:  requestTruncated,
 		ResponseTruncated: responseTruncated,
 	}
+	populateConversationLogDisplayFields(log, base.APIKey, base.Account)
 	svc.Submit(log)
 	_ = parent
 }
@@ -145,6 +210,7 @@ func submitOpenAIConversationLog(
 	durationMs := durationMsPtr(result.Duration)
 	requestType := service.RequestTypeFromLegacy(result.Stream, result.OpenAIWSMode)
 	log := &service.ConversationLog{
+		LiveID:            conversationLogLiveID(parent),
 		RequestID:         result.RequestID,
 		ResponseID:        result.ResponseID,
 		UserID:            conversationLogUserID(base.APIKey),
@@ -173,8 +239,27 @@ func submitOpenAIConversationLog(
 		RequestTruncated:  requestTruncated,
 		ResponseTruncated: responseTruncated,
 	}
+	populateConversationLogDisplayFields(log, base.APIKey, base.Account)
 	svc.Submit(log)
 	_ = parent
+}
+
+func populateConversationLogDisplayFields(log *service.ConversationLog, apiKey *service.APIKey, account *service.Account) {
+	if log == nil {
+		return
+	}
+	if apiKey != nil {
+		log.APIKeyName = apiKey.Name
+		if apiKey.User != nil {
+			log.UserEmail = apiKey.User.Email
+		}
+		if apiKey.Group != nil {
+			log.GroupName = apiKey.Group.Name
+		}
+	}
+	if account != nil {
+		log.AccountName = account.Name
+	}
 }
 
 type conversationWSTurnCapture struct {
@@ -260,6 +345,49 @@ func (c *conversationWSLogCapture) Snapshot(turn int) ([]byte, string, string, b
 	return requestBody, requestedModel, conversationWSFramesJSON(frames), false
 }
 
+func (c *conversationWSLogCapture) SnapshotSession() ([]byte, string) {
+	if c == nil {
+		return nil, ""
+	}
+	c.mu.Lock()
+	turns := make([]int, 0, len(c.turns))
+	for turn := range c.turns {
+		turns = append(turns, turn)
+	}
+	sort.Ints(turns)
+	type sessionTurn struct {
+		Turn     int             `json:"turn"`
+		Request  json.RawMessage `json:"request,omitempty"`
+		Response json.RawMessage `json:"response,omitempty"`
+	}
+	requestTurns := make([]sessionTurn, 0, len(turns))
+	responseTurns := make([]sessionTurn, 0, len(turns))
+	for _, turn := range turns {
+		capture := c.turns[turn]
+		if capture == nil {
+			continue
+		}
+		if request := conversationWSJSONValue(capture.requestBody); request != nil {
+			requestTurns = append(requestTurns, sessionTurn{Turn: turn, Request: request})
+		}
+		if response := conversationWSJSONValue([]byte(conversationWSFramesJSON(capture.responseFrames))); response != nil {
+			responseTurns = append(responseTurns, sessionTurn{Turn: turn, Response: response})
+		}
+	}
+	c.mu.Unlock()
+
+	requestBody, _ := json.Marshal(struct {
+		ConversationTurns []sessionTurn `json:"conversation_turns"`
+	}{ConversationTurns: requestTurns})
+	if !c.svc.StoreResponse() {
+		return requestBody, ""
+	}
+	responseBody, _ := json.Marshal(struct {
+		ConversationTurns []sessionTurn `json:"conversation_turns"`
+	}{ConversationTurns: responseTurns})
+	return requestBody, string(responseBody)
+}
+
 func (c *conversationWSLogCapture) Forget(turn int) {
 	if c == nil {
 		return
@@ -318,6 +446,21 @@ func conversationWSFramesJSON(frames [][]byte) string {
 	}
 	out = append(out, ']')
 	return string(out)
+}
+
+func conversationWSJSONValue(payload []byte) json.RawMessage {
+	trimmed := bytes.TrimSpace(payload)
+	if len(trimmed) == 0 {
+		return nil
+	}
+	if json.Valid(trimmed) {
+		return append(json.RawMessage(nil), trimmed...)
+	}
+	encoded, err := json.Marshal(strings.ToValidUTF8(string(trimmed), "\uFFFD"))
+	if err != nil {
+		return nil
+	}
+	return encoded
 }
 
 func conversationLogStatus(c *gin.Context) int {

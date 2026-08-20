@@ -3,7 +3,75 @@
     <TablePageLayout>
       <template #filters>
         <div class="flex flex-col gap-4">
-          <div class="flex flex-col justify-between gap-4 xl:flex-row xl:items-center">
+          <UsageFilters
+            v-if="isAdminView"
+            v-model="filters"
+            class="!p-0"
+            flat
+            mode="conversation"
+            :exporting="false"
+            :start-date="startDate"
+            :end-date="endDate"
+            :model-options="modelOptions"
+            @change="applyFilters"
+            @refresh="loadLogs()"
+            @reset="resetFilters"
+          >
+            <template #extra-filters>
+              <div class="w-full sm:w-auto sm:min-w-[280px]">
+                <label class="input-label">{{ logText('search') }}</label>
+                <div class="relative">
+                  <Icon
+                    name="search"
+                    size="md"
+                    class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500"
+                  />
+                  <input
+                    v-model="filters.q"
+                    type="text"
+                    :placeholder="logText('searchPlaceholder')"
+                    class="input pl-10"
+                    @input="onSearchInput"
+                    @keyup.enter="applyFilters"
+                  />
+                </div>
+              </div>
+
+              <div class="w-full sm:w-auto sm:min-w-[180px]">
+                <label class="input-label">{{ logText('platform') }}</label>
+                <Select v-model="filters.platform" :options="platformOptions" @change="applyFilters" />
+              </div>
+
+              <div class="w-full sm:w-auto sm:min-w-[180px]">
+                <label class="input-label">{{ logText('mode') }}</label>
+                <Select v-model="filters.stream" :options="streamOptions" @change="applyFilters" />
+              </div>
+
+              <div class="w-full sm:w-auto sm:min-w-[220px]">
+                <label class="input-label">{{ logText('time') }}</label>
+                <DateRangePicker
+                  v-model:start-date="startDate"
+                  v-model:end-date="endDate"
+                  @change="applyFilters"
+                />
+              </div>
+            </template>
+
+            <template #before-actions>
+              <button
+                type="button"
+                class="btn btn-secondary"
+                :aria-pressed="liveStreamEnabled"
+                :title="logText(isSeedPreview ? 'demoLiveStreamHint' : 'liveStreamHint')"
+                @click="toggleLiveStream"
+              >
+                <span class="mr-2 h-2 w-2 rounded-full" :class="liveStreamEnabled ? 'bg-emerald-500 animate-pulse' : 'bg-gray-400'" />
+                {{ logText(liveStreamEnabled ? 'stopLiveStream' : isSeedPreview ? 'startLiveDemo' : 'startLiveStream') }}
+              </button>
+            </template>
+          </UsageFilters>
+
+          <div v-else class="flex flex-col justify-between gap-4 xl:flex-row xl:items-center">
             <div class="flex flex-1 flex-wrap items-center gap-3">
               <div class="relative w-full sm:w-80">
                 <Icon
@@ -21,7 +89,7 @@
                 />
               </div>
 
-              <div class="w-full sm:w-52">
+              <div v-if="!isAdminView" class="w-full sm:w-52">
                 <Input
                   v-model="filters.model"
                   :placeholder="logText('modelPlaceholder')"
@@ -37,6 +105,7 @@
               />
 
               <Select
+                v-if="!isAdminView"
                 v-model="filters.request_type"
                 :options="requestTypeOptions"
                 class="w-full sm:w-44"
@@ -61,6 +130,16 @@
               <button
                 type="button"
                 class="btn btn-secondary"
+                :aria-pressed="liveStreamEnabled"
+                :title="logText(isSeedPreview ? 'demoLiveStreamHint' : 'liveStreamHint')"
+                @click="toggleLiveStream"
+              >
+                <span class="mr-2 h-2 w-2 rounded-full" :class="liveStreamEnabled ? 'bg-emerald-500 animate-pulse' : 'bg-gray-400'" />
+                {{ logText(liveStreamEnabled ? 'stopLiveStream' : isSeedPreview ? 'startLiveDemo' : 'startLiveStream') }}
+              </button>
+              <button
+                type="button"
+                class="btn btn-secondary"
                 :title="t('common.reset')"
                 @click="resetFilters"
               >
@@ -72,7 +151,7 @@
                 class="btn btn-secondary"
                 :disabled="loading"
                 :title="t('common.refresh')"
-                @click="loadLogs"
+                @click="loadLogs()"
               >
                 <Icon name="refresh" size="md" :class="loading ? 'animate-spin' : ''" />
               </button>
@@ -162,7 +241,10 @@
           </template>
 
           <template #cell-status_code="{ row }">
-            <span class="inline-flex rounded px-2 py-1 text-xs font-semibold" :class="statusClass(row.status_code)">
+            <span v-if="row.status_code === 102" class="inline-flex items-center text-amber-500" :title="logText('inProgress')">
+              <Icon name="refresh" size="sm" class="animate-spin" />
+            </span>
+            <span v-else class="inline-flex rounded px-2 py-1 text-xs font-semibold" :class="statusClass(row.status_code)">
               {{ row.status_code || '-' }}
             </span>
           </template>
@@ -242,29 +324,19 @@
         :i18n-prefix="conversationLogsI18nPrefix"
       />
 
-      <section class="overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-dark-700 dark:bg-dark-800">
-        <button
-          type="button"
-          class="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-gray-50 dark:hover:bg-dark-700/60"
-          :aria-expanded="metadataVisible"
-          @click="metadataVisible = !metadataVisible"
-        >
-          <span class="flex min-w-0 items-center gap-2">
-            <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gray-100 text-gray-500 dark:bg-dark-700 dark:text-dark-300">
-              <Icon name="document" size="sm" />
-            </span>
-            <span class="min-w-0">
-              <span class="block text-sm font-semibold text-gray-800 dark:text-dark-100">{{ logText('requestInfo') }}</span>
-              <span class="block truncate text-xs text-gray-500 dark:text-dark-400">{{ logText('requestInfoHint') }}</span>
-            </span>
+      <details class="group overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-dark-700 dark:bg-dark-800">
+        <summary class="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 hover:bg-gray-50 dark:hover:bg-dark-700/60">
+          <span class="min-w-0">
+            <span class="block text-sm font-semibold text-gray-800 dark:text-dark-100">{{ logText('requestInfo') }}</span>
+            <span class="mt-1 block truncate text-xs text-gray-500 dark:text-dark-400">{{ selectedLog.model || selectedLog.requested_model || '-' }} · {{ formatMs(selectedLog.duration_ms) }} · {{ formatNumber(selectedLog.total_tokens) }} {{ logText('totalTokens') }}</span>
           </span>
           <span class="flex shrink-0 items-center gap-2">
-            <span class="hidden rounded bg-gray-100 px-2 py-1 text-[10px] font-semibold text-gray-600 dark:bg-dark-700 dark:text-dark-200 sm:inline">{{ selectedLog.model || selectedLog.requested_model || '-' }}</span>
+            <span class="hidden rounded bg-gray-100 px-2 py-1 text-[10px] font-semibold text-gray-600 dark:bg-dark-700 dark:text-dark-200 sm:inline">{{ selectedLog.platform || '-' }}</span>
             <span class="rounded px-2 py-1 text-[10px] font-semibold" :class="statusClass(selectedLog.status_code)">{{ selectedLog.status_code || '-' }}</span>
-            <Icon name="chevronDown" size="sm" class="text-gray-400 transition-transform dark:text-dark-400" :class="metadataVisible ? 'rotate-180' : ''" />
+            <Icon name="chevronDown" size="sm" class="text-gray-400 transition-transform group-open:rotate-180 dark:text-dark-400" />
           </span>
-        </button>
-        <div v-if="metadataVisible" class="grid grid-cols-1 gap-3 border-t border-gray-200 p-3 dark:border-dark-700 sm:grid-cols-2 xl:grid-cols-4">
+        </summary>
+        <div class="grid grid-cols-1 gap-2 border-t border-gray-200 p-3 dark:border-dark-700 sm:grid-cols-2 xl:grid-cols-4">
           <DetailItem v-if="isAdminView" :label="logText('user')" :value="displayUser(selectedLog)" />
           <DetailItem :label="logText('apiKey')" :value="displayApiKey(selectedLog)" />
           <DetailItem v-if="isAdminView" :label="logText('account')" :value="displayAccount(selectedLog)" />
@@ -276,13 +348,16 @@
           <DetailItem :label="logText('inboundEndpoint')" :value="selectedLog.inbound_endpoint || '-'" />
           <DetailItem v-if="isAdminView" :label="logText('upstreamEndpoint')" :value="selectedLog.upstream_endpoint || '-'" />
           <DetailItem :label="logText('latency')" :value="formatMs(selectedLog.duration_ms)" />
+          <DetailItem :label="logText('firstToken')" :value="formatMs(selectedLog.first_token_ms)" />
           <DetailItem v-if="isAdminView" :label="logText('queueDelay')" :value="formatMs(selectedLog.queue_delay_ms)" />
           <DetailItem :label="logText('totalTokens')" :value="formatNumber(selectedLog.total_tokens)" />
           <DetailItem :label="logText('cacheTokens')" :value="formatNumber(selectedLog.cache_read_tokens + selectedLog.cache_create_tokens)" />
+          <DetailItem :label="logText('requestId')" :value="selectedLog.request_id || '-'" />
           <DetailItem v-if="isAdminView" :label="logText('requestHash')" :value="selectedLog.request_hash || '-'" />
           <DetailItem :label="logText('responseId')" :value="selectedLog.response_id || '-'" />
+          <DetailItem :label="logText('time')" :value="formatDateTime(selectedLog.created_at)" />
         </div>
-      </section>
+      </details>
 
       <details class="group rounded-xl border border-gray-200 bg-white dark:border-dark-700 dark:bg-dark-800">
         <summary class="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-semibold text-gray-800 hover:bg-gray-50 dark:text-dark-100 dark:hover:bg-dark-700/60">
@@ -327,10 +402,12 @@ import Input from '@/components/common/Input.vue'
 import Select from '@/components/common/Select.vue'
 import Icon from '@/components/icons/Icon.vue'
 import ConversationTimeline from '@/components/admin/ConversationTimeline.vue'
+import UsageFilters from '@/components/admin/usage/UsageFilters.vue'
 import { useAppStore } from '@/stores/app'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
 import { adminConversationLogsAPI } from '@/api/admin/conversationLogs'
 import { conversationLogsAPI } from '@/api/conversationLogs'
+import { streamConversationLogs } from '@/api/conversationLogStream'
 import type { ConversationLog, ConversationLogQueryParams } from '@/api/admin/conversationLogs'
 import { conversationLogSeed } from '@/utils/conversationLogSeed'
 import { parsePayload } from '@/utils/conversationPayload'
@@ -360,14 +437,17 @@ const daysAgoString = (days: number) => {
   return formatDateForInput(date)
 }
 
-const startDate = ref(daysAgoString(6))
-const endDate = ref(todayString())
+const seedPreviewDate = formatDateForInput(new Date(conversationLogSeed[0]?.created_at || Date.now()))
+const defaultStartDate = () => isSeedPreview.value ? seedPreviewDate : daysAgoString(6)
+const defaultEndDate = () => isSeedPreview.value ? seedPreviewDate : todayString()
+const startDate = ref(defaultStartDate())
+const endDate = ref(defaultEndDate())
 const logs = ref<ConversationLog[]>([])
 const loading = ref(false)
 const detailLoading = ref(false)
 const detailVisible = ref(false)
-const metadataVisible = ref(false)
 const selectedLog = ref<ConversationLog | null>(null)
+const liveStreamEnabled = ref(false)
 const sortBy = ref('created_at')
 const sortOrder = ref<SortOrder>('desc')
 const pagination = reactive({
@@ -379,13 +459,19 @@ const pagination = reactive({
 
 const filters = reactive<{
   q: string
-  model: string
+  model: string | null
+  user_id?: number
+  api_key_id?: number
+  account_id?: number
+  group_id?: number
+  upstream_model_mismatch: boolean | null
   platform: string | null
   request_type: UsageRequestType | null
   stream: boolean | null
 }>({
   q: '',
-  model: '',
+  model: null,
+  upstream_model_mismatch: null,
   platform: null,
   request_type: null,
   stream: null
@@ -395,8 +481,16 @@ const logPreviews = computed(() => new Map(
   logs.value.map((row) => [row.id, buildConversationPreview(row.request_body, row.response_body)])
 ))
 
+const modelOptions = computed(() => Array.from(new Set([
+  ...logs.value.flatMap((row) => [row.model, row.requested_model, row.upstream_model]),
+  filters.model || ''
+].filter(Boolean))).sort())
+
 let abortController: AbortController | null = null
 let searchTimer: number | null = null
+let liveStreamController: AbortController | null = null
+let liveSeedTimer: number | null = null
+let liveSeedSequence = 0
 
 const columns = computed<Column[]>(() => {
   const items: Column[] = [
@@ -470,6 +564,99 @@ async function loadLogs() {
     if (!controller.signal.aborted) {
       loading.value = false
     }
+    if (abortController === controller) abortController = null
+  }
+}
+
+function liveStreamPath() {
+  return isAdminView.value ? '/admin/conversation-logs/stream' : '/conversation-logs/stream'
+}
+
+function disconnectLiveStream() {
+  liveStreamController?.abort()
+  liveStreamController = null
+  if (liveSeedTimer) {
+    window.clearInterval(liveSeedTimer)
+    liveSeedTimer = null
+  }
+}
+
+function startLiveStream() {
+  disconnectLiveStream()
+  liveStreamEnabled.value = true
+  if (isSeedPreview.value) {
+    appendLiveLog(createSeedLiveLog())
+    liveSeedTimer = window.setInterval(() => appendLiveLog(createSeedLiveLog()), 2500)
+    return
+  }
+  const controller = new AbortController()
+  liveStreamController = controller
+  void streamConversationLogs(liveStreamPath(), buildQueryParams(), {
+    signal: controller.signal,
+    onOpen: () => undefined,
+    onLog: appendLiveLog
+  }).catch(() => {
+    if (!controller.signal.aborted) appStore.showError(logText('failedToLoad'))
+  })
+}
+
+function stopLiveStream() {
+  disconnectLiveStream()
+  liveStreamEnabled.value = false
+}
+
+function toggleLiveStream() {
+  if (liveStreamEnabled.value) {
+    stopLiveStream()
+    return
+  }
+  startLiveStream()
+}
+
+function restartLiveStream() {
+  if (liveStreamEnabled.value) startLiveStream()
+}
+
+function appendLiveLog(row: ConversationLog) {
+  if (pagination.page !== 1 || sortBy.value !== 'created_at' || sortOrder.value !== 'desc') return
+  const isSameLog = (item: ConversationLog) => row.live_id ? item.live_id === row.live_id : item.id === row.id
+  const exists = logs.value.some(isSameLog)
+  logs.value = [row, ...logs.value.filter((item) => !isSameLog(item))].slice(0, pagination.page_size)
+  if (!exists) pagination.total += 1
+}
+
+function createSeedLiveLog(): ConversationLog {
+  const index = liveSeedSequence++
+  const message = [
+    '继续检查这个长对话的上一轮结论，并列出还缺少的证据。',
+    '请基于刚才的分析，给我一个可直接执行的三步方案。',
+    '把工具调用的结果合并进最终答复，并标出不确定的部分。'
+  ][index % 3]
+  const now = new Date().toISOString()
+  return {
+    ...conversationLogSeed[index % conversationLogSeed.length],
+    id: -(index + 1),
+    request_id: `preview-live-${Date.now()}`,
+    response_id: '',
+    model: 'gpt-5.6-luna',
+    requested_model: 'gpt-5.6-luna',
+    upstream_model: 'gpt-5.6-luna',
+    request_type: 'stream',
+    stream: true,
+    openai_ws_mode: false,
+    status_code: 102,
+    duration_ms: (index + 1) * 1200,
+    first_token_ms: null,
+    input_tokens: 0,
+    output_tokens: 0,
+    cache_read_tokens: 0,
+    cache_create_tokens: 0,
+    total_tokens: 0,
+    request_body: JSON.stringify({ model: 'gpt-5.6-luna', stream: true, input: [{ role: 'user', content: message }] }),
+    response_body: 'event: response.created\ndata: {"type":"response.created","response":{"status":"in_progress"}}',
+    request_truncated: false,
+    response_truncated: false,
+    created_at: now
   }
 }
 
@@ -483,9 +670,14 @@ function buildQueryParams(): ConversationLogQueryParams {
     sort_order: sortOrder.value
   }
   const q = filters.q.trim()
-  const model = filters.model.trim()
+  const model = filters.model?.trim()
   if (q) params.q = q
   if (model) params.model = model
+  if (filters.user_id) params.user_id = filters.user_id
+  if (filters.api_key_id) params.api_key_id = filters.api_key_id
+  if (filters.account_id) params.account_id = filters.account_id
+  if (filters.group_id) params.group_id = filters.group_id
+  if (filters.upstream_model_mismatch !== null) params.upstream_model_mismatch = filters.upstream_model_mismatch
   if (filters.platform) params.platform = filters.platform
   if (filters.request_type) params.request_type = filters.request_type
   if (filters.stream !== null) params.stream = filters.stream
@@ -504,31 +696,40 @@ function onSearchInput() {
 function applyFilters() {
   pagination.page = 1
   loadLogs()
+  restartLiveStream()
 }
 
 function resetFilters() {
   filters.q = ''
-  filters.model = ''
+  filters.model = null
+  filters.user_id = undefined
+  filters.api_key_id = undefined
+  filters.account_id = undefined
+  filters.group_id = undefined
+  filters.upstream_model_mismatch = null
   filters.platform = null
   filters.request_type = null
   filters.stream = null
-  startDate.value = daysAgoString(6)
-  endDate.value = todayString()
+  startDate.value = defaultStartDate()
+  endDate.value = defaultEndDate()
   pagination.page = 1
   sortBy.value = 'created_at'
   sortOrder.value = 'desc'
   loadLogs()
+  restartLiveStream()
 }
 
 function handlePageChange(page: number) {
   pagination.page = page
   loadLogs()
+  restartLiveStream()
 }
 
 function handlePageSizeChange(pageSize: number) {
   pagination.page_size = pageSize
   pagination.page = 1
   loadLogs()
+  restartLiveStream()
 }
 
 function handleSort(key: string, order: SortOrder) {
@@ -536,11 +737,11 @@ function handleSort(key: string, order: SortOrder) {
   sortOrder.value = order
   pagination.page = 1
   loadLogs()
+  restartLiveStream()
 }
 
 async function openDetail(row: ConversationLog) {
   selectedLog.value = row
-  metadataVisible.value = false
   detailVisible.value = true
   if (isSeedPreview.value) {
     detailLoading.value = false
@@ -561,7 +762,6 @@ async function openDetail(row: ConversationLog) {
 
 function closeDetail() {
   detailVisible.value = false
-  metadataVisible.value = false
   selectedLog.value = null
 }
 
@@ -592,6 +792,11 @@ function matchesSeedFilters(row: ConversationLog) {
   if (filters.model && ![row.model, row.requested_model, row.upstream_model].join(' ').toLocaleLowerCase().includes(filters.model.trim().toLocaleLowerCase())) {
     return false
   }
+  if (filters.user_id && row.user_id !== filters.user_id) return false
+  if (filters.api_key_id && row.api_key_id !== filters.api_key_id) return false
+  if (filters.account_id && row.account_id !== filters.account_id) return false
+  if (filters.group_id && row.group_id !== filters.group_id) return false
+  if (filters.upstream_model_mismatch !== null && hasUpstreamModelMismatch(row) !== filters.upstream_model_mismatch) return false
   if (filters.platform && row.platform !== filters.platform) return false
   if (filters.request_type && row.request_type !== filters.request_type) return false
   if (filters.stream !== null && row.stream !== filters.stream) return false
@@ -600,6 +805,12 @@ function matchesSeedFilters(row: ConversationLog) {
   if (startDate.value && date < startDate.value) return false
   if (endDate.value && date > endDate.value) return false
   return true
+}
+
+function hasUpstreamModelMismatch(row: ConversationLog) {
+  const upstreamModel = row.upstream_model || row.model || ''
+  const displayedModel = row.model || row.requested_model || ''
+  return upstreamModel !== displayedModel
 }
 
 async function copyText(text: string) {
@@ -713,9 +924,9 @@ const DetailItem = defineComponent({
   },
   setup(props) {
     return () =>
-      h('div', { class: 'rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-dark-700 dark:bg-dark-900' }, [
-        h('div', { class: 'text-xs font-medium text-gray-500 dark:text-gray-400' }, props.label),
-        h('div', { class: 'mt-1 break-words text-sm font-medium text-gray-900 dark:text-white', title: props.value }, props.value)
+      h('div', { class: 'min-w-0 px-4 py-2.5' }, [
+        h('div', { class: 'text-[10px] font-medium text-gray-500 dark:text-dark-400' }, props.label),
+        h('div', { class: 'mt-0.5 break-words text-xs font-medium text-gray-900 dark:text-white', title: props.value }, props.value)
       ])
   }
 })
@@ -851,6 +1062,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   abortController?.abort()
+  disconnectLiveStream()
   if (searchTimer) {
     window.clearTimeout(searchTimer)
   }

@@ -699,6 +699,7 @@ func registerUsageRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 func registerConversationLogRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 	logs := admin.Group("/conversation-logs")
 	{
+		logs.GET("/stream", h.Admin.ConversationLog.Stream)
 		logs.GET("", h.Admin.ConversationLog.List)
 		logs.GET("/:id", h.Admin.ConversationLog.GetByID)
 	}

@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"encoding/json"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -23,6 +25,7 @@ func NewConversationLogHandler(conversationLogService *service.ConversationLogSe
 
 type userConversationLogResponse struct {
 	ID                int64  `json:"id"`
+	LiveID            string `json:"live_id"`
 	RequestID         string `json:"request_id"`
 	ResponseID        string `json:"response_id"`
 	UserID            int64  `json:"user_id"`
@@ -89,6 +92,54 @@ func (h *ConversationLogHandler) ListMine(c *gin.Context) {
 		out = append(out, conversationLogToUserListResponse(&items[i]))
 	}
 	response.Paginated(c, out, result.Total, result.Page, result.PageSize)
+}
+
+// StreamMine pushes only records owned by the authenticated user.
+func (h *ConversationLogHandler) StreamMine(c *gin.Context) {
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+	filters, ok := parseUserConversationLogFilters(c)
+	if !ok {
+		return
+	}
+	filters.UserID = subject.UserID
+	events, unsubscribe := h.conversationLogService.SubscribeLive()
+	defer unsubscribe()
+
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Header("X-Accel-Buffering", "no")
+	c.Status(http.StatusOK)
+	c.Writer.Flush()
+
+	keepalive := time.NewTicker(20 * time.Second)
+	defer keepalive.Stop()
+	for {
+		select {
+		case <-c.Request.Context().Done():
+			return
+		case item, open := <-events:
+			if !open {
+				return
+			}
+			if !service.ConversationLogMatches(item, filters) {
+				continue
+			}
+			data, err := json.Marshal(conversationLogToUserResponse(&item))
+			if err != nil {
+				continue
+			}
+			_, _ = c.Writer.WriteString("event: conversation_log\ndata: " + string(data) + "\n\n")
+			c.Writer.Flush()
+		case <-keepalive.C:
+			_, _ = c.Writer.WriteString(": keep-alive\n\n")
+			c.Writer.Flush()
+		}
+	}
 }
 
 func (h *ConversationLogHandler) GetMineByID(c *gin.Context) {
@@ -187,6 +238,7 @@ func conversationLogToUserResponse(log *service.ConversationLog) userConversatio
 	}
 	return userConversationLogResponse{
 		ID:                log.ID,
+		LiveID:            log.LiveID,
 		RequestID:         log.RequestID,
 		ResponseID:        log.ResponseID,
 		UserID:            log.UserID,

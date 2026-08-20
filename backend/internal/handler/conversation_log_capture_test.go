@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
+	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -60,6 +62,44 @@ func TestConversationResponseCapture_DoesNotAlterResponse(t *testing.T) {
 	require.Equal(t, "hello world", body)
 	require.False(t, truncated)
 	require.Equal(t, "hello world", rec.Body.String())
+}
+
+func TestConversationResponseCapture_PublishesInProgressLiveLog(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest("POST", "/v1/responses", nil)
+	c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{
+		ID:     7,
+		UserID: 9,
+		Name:   "test key",
+		User:   &service.User{ID: 9, Email: "user@example.com"},
+	})
+	svc := service.NewConversationLogService(handlerConversationLogRepoStub{}, &config.Config{
+		Gateway: config.GatewayConfig{ConversationLog: config.GatewayConversationLogConfig{
+			Enabled: true, StoreRequest: true, StoreResponse: true,
+		}},
+	})
+	t.Cleanup(svc.Stop)
+	events, unsubscribe := svc.SubscribeLive()
+	t.Cleanup(unsubscribe)
+
+	capture := startConversationResponseCapture(c, svc, []byte(`{"model":"gpt-5.6-luna","stream":true,"input":"hello"}`))
+	require.NotNil(t, capture)
+	_, err := c.Writer.WriteString("data: response.created\n\n")
+	require.NoError(t, err)
+
+	select {
+	case log := <-events:
+		require.Negative(t, log.ID)
+		require.NotEmpty(t, log.LiveID)
+		require.Equal(t, log.LiveID, conversationLogLiveID(c.Request.Context()))
+		require.Equal(t, 102, log.StatusCode)
+		require.Equal(t, "gpt-5.6-luna", log.Model)
+		require.Contains(t, log.RequestBody, `"input":"hello"`)
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for live conversation event")
+	}
 }
 
 func TestConversationResponseCapture_RestoresNestedWriterBeforeOpsRelease(t *testing.T) {
@@ -137,6 +177,33 @@ func TestConversationWSLogCapture_SnapshotsTurnAsJSONFrameArray(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, "response.created", first["type"])
 	require.Equal(t, "not-json", frames[1])
+}
+
+func TestConversationWSLogCapture_SnapshotSessionKeepsTurnsTogether(t *testing.T) {
+	svc := service.NewConversationLogService(handlerConversationLogRepoStub{}, &config.Config{
+		Gateway: config.GatewayConfig{ConversationLog: config.GatewayConversationLogConfig{
+			Enabled: true, WorkerCount: 1, QueueSize: 1, TaskTimeoutSeconds: 1,
+			OverflowPolicy: config.UsageRecordOverflowPolicySync, StoreRequest: true, StoreResponse: true,
+		}},
+	})
+	t.Cleanup(svc.Stop)
+
+	capture := newConversationWSLogCapture(svc)
+	capture.CaptureRequest(2, []byte(`{"type":"response.create","input":"second"}`), "gpt-4.1")
+	capture.CaptureResponse(2, []byte(`{"type":"response.output_text.delta","delta":"two"}`))
+	capture.CaptureRequest(1, []byte(`{"type":"response.create","input":"first"}`), "gpt-4.1")
+	capture.CaptureResponse(1, []byte(`{"type":"response.output_text.delta","delta":"one"}`))
+
+	requestBody, responseBody := capture.SnapshotSession()
+	var requestTurns, responseTurns struct {
+		ConversationTurns []struct {
+			Turn int `json:"turn"`
+		} `json:"conversation_turns"`
+	}
+	require.NoError(t, json.Unmarshal(requestBody, &requestTurns))
+	require.NoError(t, json.Unmarshal([]byte(responseBody), &responseTurns))
+	require.Equal(t, []int{1, 2}, []int{requestTurns.ConversationTurns[0].Turn, requestTurns.ConversationTurns[1].Turn})
+	require.Equal(t, []int{1, 2}, []int{responseTurns.ConversationTurns[0].Turn, responseTurns.ConversationTurns[1].Turn})
 }
 
 func TestConversationWSLogCapture_RequestCaptureResetsRetriedTurnFrames(t *testing.T) {

@@ -78,6 +78,29 @@ func TestConversationLogService_SubmitEnqueued(t *testing.T) {
 	}, time.Second, 10*time.Millisecond)
 }
 
+func TestConversationLogServicePublishesPersistedLog(t *testing.T) {
+	repo := &conversationLogRepoStub{}
+	svc := NewConversationLogService(repo, &config.Config{
+		Gateway: config.GatewayConfig{ConversationLog: config.GatewayConversationLogConfig{
+			Enabled: true, WorkerCount: 1, QueueSize: 8, TaskTimeoutSeconds: 1,
+			OverflowPolicy: config.UsageRecordOverflowPolicySync,
+		}},
+	})
+	t.Cleanup(svc.Stop)
+
+	events, unsubscribe := svc.SubscribeLive()
+	t.Cleanup(unsubscribe)
+	svc.Submit(&ConversationLog{RequestID: "req_live", UserID: 7})
+
+	select {
+	case got := <-events:
+		require.Equal(t, "req_live", got.RequestID)
+		require.Equal(t, int64(7), got.UserID)
+	case <-time.After(time.Second):
+		t.Fatal("expected persisted conversation log to be published")
+	}
+}
+
 func TestConversationLogService_CaptureRequestBody(t *testing.T) {
 	svc := NewConversationLogService(nil, &config.Config{
 		Gateway: config.GatewayConfig{
