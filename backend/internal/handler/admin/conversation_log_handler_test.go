@@ -6,13 +6,14 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
-func TestConversationLogToListResponseOmitsPayloadBodies(t *testing.T) {
+func TestConversationLogToListResponseKeepsRequestPreview(t *testing.T) {
+	requestBody := `{"messages":[{"role":"user","content":"private request"}]}`
 	response := conversationLogToListResponse(&service.ConversationLog{
-		RequestBody:  `{"messages":[{"role":"user","content":"private request"}]}`,
+		RequestBody:  requestBody,
 		ResponseBody: `{"choices":[{"message":{"content":"private response"}}]}`,
 	})
 
-	if response.RequestBody != "" || response.ResponseBody != "" {
-		t.Fatalf("list response must omit payload bodies: %+v", response)
+	if response.RequestBody != requestBody || response.ResponseBody != "" {
+		t.Fatalf("list response must keep the request preview and omit the response body: %+v", response)
 	}
 }

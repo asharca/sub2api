@@ -266,12 +266,10 @@ func conversationLogToResponse(log *service.ConversationLog) conversationLogResp
 	}
 }
 
-// conversationLogToListResponse deliberately omits payload bodies. Production
-// conversation records can be very large; the detail endpoint loads one record
-// on demand when an administrator explicitly asks to inspect it.
+// The repository bounds RequestBody for list queries so the UI can build a
+// conversation preview. ResponseBody remains detail-only because it can be large.
 func conversationLogToListResponse(log *service.ConversationLog) conversationLogResponse {
 	result := conversationLogToResponse(log)
-	result.RequestBody = ""
 	result.ResponseBody = ""
 	return result
 }

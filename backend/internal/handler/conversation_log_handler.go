@@ -272,7 +272,6 @@ func conversationLogToUserResponse(log *service.ConversationLog) userConversatio
 
 func conversationLogToUserListResponse(log *service.ConversationLog) userConversationLogResponse {
 	result := conversationLogToUserResponse(log)
-	result.RequestBody = ""
 	result.ResponseBody = ""
 	return result
 }

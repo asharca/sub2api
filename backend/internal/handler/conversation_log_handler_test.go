@@ -86,8 +86,8 @@ func TestConversationLogHandlerListMineForcesCurrentUser(t *testing.T) {
 	if len(body.Data.Items) != 1 || body.Data.Items[0].AccountName != "" || body.Data.Items[0].UpstreamEndpoint != "" {
 		t.Fatalf("user response should not expose internal account fields: %+v", body.Data.Items)
 	}
-	if body.Data.Items[0].RequestBody != "" || body.Data.Items[0].ResponseBody != "" {
-		t.Fatalf("conversation list should omit payload bodies: %+v", body.Data.Items[0])
+	if body.Data.Items[0].RequestBody != `{"input":"hello"}` || body.Data.Items[0].ResponseBody != "" {
+		t.Fatalf("conversation list should keep the request preview and omit the response body: %+v", body.Data.Items[0])
 	}
 }
 
