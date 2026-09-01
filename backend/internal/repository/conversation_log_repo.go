@@ -86,7 +86,11 @@ SELECT
     cl.platform, cl.inbound_endpoint, cl.upstream_endpoint, cl.model, cl.requested_model, cl.upstream_model,
     cl.request_type, cl.stream, cl.openai_ws_mode, cl.status_code, cl.duration_ms, cl.first_token_ms,
     cl.input_tokens, cl.output_tokens, cl.cache_read_tokens, cl.cache_create_tokens,
-    cl.request_hash, LEFT(cl.request_body, 2048),
+    cl.request_hash,
+    CASE
+        WHEN NULLIF(BTRIM(conversation_preview.text), '') IS NULL THEN ''
+        ELSE jsonb_build_object('input', conversation_preview.text)::text
+    END,
     '' AS response_body,
     cl.request_truncated, cl.response_truncated, cl.queue_delay_ms, cl.created_at,
     COALESCE(u.email, ''), COALESCE(ak.name, ''), COALESCE(a.name, ''), COALESCE(g.name, '')
@@ -95,6 +99,60 @@ LEFT JOIN users u ON u.id = cl.user_id
 LEFT JOIN api_keys ak ON ak.id = cl.api_key_id
 LEFT JOIN accounts a ON a.id = cl.account_id
 LEFT JOIN groups g ON g.id = cl.group_id
+-- ponytail: extract only the visible page; persist summaries if list latency becomes measurable.
+LEFT JOIN LATERAL (
+    SELECT public.try_parse_conversation_log_jsonb(
+        replace(cl.request_body, chr(92) || 'u0000', chr(92) || 'uFFFD')
+    ) AS body
+    WHERE cl.request_body <> '' AND NOT cl.request_truncated
+    OFFSET 0
+) conversation_payload ON TRUE
+LEFT JOIN LATERAL (
+    SELECT COALESCE(
+        jsonb_path_query_array(
+            conversation_payload.body,
+            '$.** ? ((@.role == "user" || @.author == "user" || @.author_role == "user") && (@.content.type() == "string" || exists(@.content[*].text) || exists(@.content[*].input_text) || exists(@.parts[*].text) || @.text.type() == "string" || @.input.type() == "string"))'
+        )->-1,
+        CASE
+            WHEN jsonb_typeof(conversation_payload.body->'conversation_turns'->-1->'request'->'input') = 'string'
+            THEN jsonb_build_object('role', 'user', 'content', conversation_payload.body->'conversation_turns'->-1->'request'->'input')
+        END,
+        CASE
+            WHEN jsonb_typeof(conversation_payload.body->'input') = 'string'
+            THEN jsonb_build_object('role', 'user', 'content', conversation_payload.body->'input')
+        END,
+        CASE
+            WHEN jsonb_typeof(conversation_payload.body->'input'->-1) = 'string'
+            THEN jsonb_build_object('role', 'user', 'content', conversation_payload.body->'input'->-1)
+        END,
+        CASE
+            WHEN jsonb_typeof(conversation_payload.body->'prompt') = 'string'
+            THEN jsonb_build_object('role', 'user', 'content', conversation_payload.body->'prompt')
+        END
+    ) AS message
+    OFFSET 0
+) conversation_user ON conversation_payload.body IS NOT NULL
+LEFT JOIN LATERAL (
+    SELECT LEFT(
+        regexp_replace(
+            LEFT(COALESCE(
+                CASE
+                    WHEN jsonb_typeof(conversation_user.message->'content') = 'string'
+                    THEN conversation_user.message->>'content'
+                END,
+                jsonb_path_query_first(conversation_user.message, '$.content[*].text')#>>'{}',
+                jsonb_path_query_first(conversation_user.message, '$.content[*].input_text')#>>'{}',
+                jsonb_path_query_first(conversation_user.message, '$.parts[*].text')#>>'{}',
+                conversation_user.message->>'text',
+                conversation_user.message->>'input',
+                ''
+            ), 2048),
+            '[[:space:]]+', ' ', 'g'
+        ),
+        512
+    ) AS text
+    OFFSET 0
+) conversation_preview ON conversation_user.message IS NOT NULL
 %s
 ORDER BY %s %s, cl.id DESC
 LIMIT $%d OFFSET $%d`, where, sortBy, sortOrder, len(listArgs)-1, len(listArgs))
