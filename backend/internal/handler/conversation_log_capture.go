@@ -95,7 +95,7 @@ func (w *conversationResponseCapture) publishLiveStart() {
 		return
 	}
 	w.liveOnce.Do(func() {
-		if status := w.ResponseWriter.Status(); status < http.StatusOK || status >= http.StatusMultipleChoices {
+		if status := w.Status(); status < http.StatusOK || status >= http.StatusMultipleChoices {
 			return
 		}
 		apiKey, ok := middleware2.GetAPIKeyFromContext(w.context)
