@@ -2876,6 +2876,8 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				return
 			}
 			if service.IsOpenAIWSSessionPreemptedError(err) {
+				reqLog.Info("openai.websocket_ingress_preempted", zap.Int64("account_id", account.ID))
+				closeOpenAIClientWS(wsConn, coderws.StatusGoingAway, "websocket session replaced by newer request; please reconnect")
 				return
 			}
 			var failoverErr *service.UpstreamFailoverError
