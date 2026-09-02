@@ -1677,6 +1677,57 @@ func TestOpenAIWSConnPool_RunBackgroundPingSweep_ConcurrencyLimit(t *testing.T) 
 	require.LessOrEqual(t, maxConcurrent.Load(), int32(10))
 }
 
+func TestOpenAIWSConnPool_BackgroundPingSweep_HoldsLeaseDuringProbe(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Gateway.OpenAIWS.MaxConnsPerAccount = 1
+	pool := &openAIWSConnPool{cfg: cfg}
+	account := &Account{ID: 506, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+	ap := pool.getOrCreateAccountPool(account.ID)
+
+	var current atomic.Int32
+	var maxConcurrent atomic.Int32
+	releasePing := make(chan struct{})
+	conn := newOpenAIWSConn("ping_probe_lease", account.ID, &openAIWSPingBlockingConn{
+		current:       &current,
+		maxConcurrent: &maxConcurrent,
+		release:       releasePing,
+	}, nil)
+	ap.mu.Lock()
+	ap.conns[conn.id] = conn
+	ap.mu.Unlock()
+
+	sweepDone := make(chan struct{})
+	go func() {
+		pool.runBackgroundPingSweep()
+		close(sweepDone)
+	}()
+	require.Eventually(t, func() bool { return current.Load() == 1 }, time.Second, 10*time.Millisecond)
+
+	acquireResult := make(chan *openAIWSConnLease, 1)
+	acquireErr := make(chan error, 1)
+	go func() {
+		lease, err := pool.Acquire(context.Background(), openAIWSAcquireRequest{
+			Account: account,
+			WSURL:   "wss://example.com/v1/responses",
+		})
+		acquireResult <- lease
+		acquireErr <- err
+	}()
+	select {
+	case <-acquireResult:
+		t.Fatal("acquire must wait while the background probe owns the lease")
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	close(releasePing)
+	lease := <-acquireResult
+	require.NoError(t, <-acquireErr)
+	require.NotNil(t, lease)
+	require.Equal(t, conn.id, lease.ConnID())
+	lease.Release()
+	<-sweepDone
+}
+
 func TestOpenAIWSConnLease_BasicGetterBranches(t *testing.T) {
 	var nilLease *openAIWSConnLease
 	require.Equal(t, "", nilLease.ConnID())

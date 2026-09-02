@@ -141,7 +141,7 @@ func (d *coderOpenAIWSClientDialer) Dial(
 	if resp != nil {
 		respHeaders = cloneHeader(resp.Header)
 	}
-	return &coderOpenAIWSClientConn{conn: conn}, 0, respHeaders, nil
+	return newCoderOpenAIWSClientConn(conn), 0, respHeaders, nil
 }
 
 func (d *coderOpenAIWSClientDialer) proxyHTTPClient(proxy string) (*http.Client, error) {
@@ -266,8 +266,86 @@ func (d *coderOpenAIWSClientDialer) SnapshotTransportMetrics() OpenAIWSTransport
 	}
 }
 
+type coderOpenAIWSReadResult struct {
+	messageType coderws.MessageType
+	payload     []byte
+	err         error
+}
+
 type coderOpenAIWSClientConn struct {
-	conn *coderws.Conn
+	conn        *coderws.Conn
+	readCh      chan coderOpenAIWSReadResult
+	closingCh   chan struct{}
+	pumpStopCh  chan struct{}
+	pumpDoneCh  chan struct{}
+	readMu      sync.Mutex
+	terminalMu  sync.Mutex
+	terminalErr error
+	closeOnce   sync.Once
+}
+
+func newCoderOpenAIWSClientConn(conn *coderws.Conn) *coderOpenAIWSClientConn {
+	c := &coderOpenAIWSClientConn{
+		conn:       conn,
+		readCh:     make(chan coderOpenAIWSReadResult, 1),
+		closingCh:  make(chan struct{}),
+		pumpStopCh: make(chan struct{}),
+		pumpDoneCh: make(chan struct{}),
+	}
+	go c.readLoop()
+	return c
+}
+
+func (c *coderOpenAIWSClientConn) readLoop() {
+	defer close(c.pumpDoneCh)
+	defer close(c.readCh)
+	for {
+		messageType, payload, err := c.conn.Read(context.Background())
+		if err != nil {
+			c.setTerminalError(err)
+		}
+		select {
+		case c.readCh <- coderOpenAIWSReadResult{messageType: messageType, payload: payload, err: err}:
+		case <-c.pumpStopCh:
+			return
+		}
+		if err != nil {
+			return
+		}
+	}
+}
+
+func (c *coderOpenAIWSClientConn) setTerminalError(err error) {
+	if c == nil || err == nil {
+		return
+	}
+	c.terminalMu.Lock()
+	if c.terminalErr == nil {
+		c.terminalErr = err
+	}
+	c.terminalMu.Unlock()
+}
+
+func (c *coderOpenAIWSClientConn) terminalError() error {
+	if c == nil {
+		return errOpenAIWSConnClosed
+	}
+	c.terminalMu.Lock()
+	err := c.terminalErr
+	c.terminalMu.Unlock()
+	if err == nil {
+		return errOpenAIWSConnClosed
+	}
+	return err
+}
+
+func (c *coderOpenAIWSClientConn) overrideTerminalError(err error) {
+	if c == nil || err == nil {
+		return
+	}
+	c.terminalMu.Lock()
+	c.terminalErr = err
+	c.terminalMu.Unlock()
 }
 
 var _ openaiwsv2.FrameConn = (*coderOpenAIWSClientConn)(nil)
@@ -283,14 +361,7 @@ func (c *coderOpenAIWSClientConn) WriteJSON(ctx context.Context, value any) erro
 }
 
 func (c *coderOpenAIWSClientConn) ReadMessage(ctx context.Context) ([]byte, error) {
-	if c == nil || c.conn == nil {
-		return nil, errOpenAIWSConnClosed
-	}
-	if ctx == nil {
-		ctx = context.Background()
-	}
-
-	msgType, payload, err := c.conn.Read(ctx)
+	msgType, payload, err := c.ReadFrame(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -303,17 +374,44 @@ func (c *coderOpenAIWSClientConn) ReadMessage(ctx context.Context) ([]byte, erro
 }
 
 func (c *coderOpenAIWSClientConn) ReadFrame(ctx context.Context) (coderws.MessageType, []byte, error) {
-	if c == nil || c.conn == nil {
+	if c == nil || c.conn == nil || c.readCh == nil {
 		return coderws.MessageText, nil, errOpenAIWSConnClosed
 	}
+	c.readMu.Lock()
+	defer c.readMu.Unlock()
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	msgType, payload, err := c.conn.Read(ctx)
-	if err != nil {
+	if err := ctx.Err(); err != nil {
+		c.abort(err)
 		return coderws.MessageText, nil, err
 	}
-	return msgType, payload, nil
+	select {
+	case <-c.closingCh:
+		return coderws.MessageText, nil, c.terminalError()
+	default:
+	}
+	select {
+	case result, ok := <-c.readCh:
+		if !ok {
+			return coderws.MessageText, nil, c.terminalError()
+		}
+		select {
+		case <-c.closingCh:
+			return coderws.MessageText, nil, c.terminalError()
+		default:
+		}
+		if result.err != nil {
+			return result.messageType, result.payload, c.terminalError()
+		}
+		return result.messageType, result.payload, result.err
+	case <-ctx.Done():
+		err := ctx.Err()
+		c.abort(err)
+		return coderws.MessageText, nil, err
+	case <-c.closingCh:
+		return coderws.MessageText, nil, c.terminalError()
+	}
 }
 
 func (c *coderOpenAIWSClientConn) WriteFrame(ctx context.Context, msgType coderws.MessageType, payload []byte) error {
@@ -336,20 +434,53 @@ func (c *coderOpenAIWSClientConn) Ping(ctx context.Context) error {
 	return c.conn.Ping(ctx)
 }
 
-// SupportsIdlePingWithoutReader reports the actual coder/websocket contract.
-// Conn.Ping waits for a pong, while control frames are only consumed by Read.
-// The pool deliberately has no reader on an idle connection, so using Ping as
-// a health probe would deterministically time out a healthy socket.
-func (*coderOpenAIWSClientConn) SupportsIdlePingWithoutReader() bool {
-	return false
+// The connection-owned read loop consumes control frames even while no turn
+// is active, so both peer keepalives and pool health probes receive a pong.
+func (c *coderOpenAIWSClientConn) SupportsIdlePingWithoutReader() bool {
+	return c != nil && c.readCh != nil
 }
 
 func (c *coderOpenAIWSClientConn) Close() error {
 	if c == nil || c.conn == nil {
 		return nil
 	}
-	// Close 为幂等，忽略重复关闭错误。
-	_ = c.conn.Close(coderws.StatusNormalClosure, "")
-	_ = c.conn.CloseNow()
+	c.closeOnce.Do(func() {
+		c.setTerminalError(errOpenAIWSConnClosed)
+		close(c.closingCh)
+
+		closeDone := make(chan struct{})
+		go func() {
+			_ = c.conn.Close(coderws.StatusNormalClosure, "")
+			close(closeDone)
+		}()
+		readCh := c.readCh
+		for closeDone != nil {
+			select {
+			case _, ok := <-readCh:
+				if !ok {
+					readCh = nil
+				}
+			case <-closeDone:
+				closeDone = nil
+			}
+		}
+
+		close(c.pumpStopCh)
+		_ = c.conn.CloseNow()
+		<-c.pumpDoneCh
+	})
 	return nil
+}
+
+func (c *coderOpenAIWSClientConn) abort(err error) {
+	if c == nil || c.conn == nil {
+		return
+	}
+	c.closeOnce.Do(func() {
+		c.overrideTerminalError(err)
+		close(c.closingCh)
+		close(c.pumpStopCh)
+		_ = c.conn.CloseNow()
+		<-c.pumpDoneCh
+	})
 }
