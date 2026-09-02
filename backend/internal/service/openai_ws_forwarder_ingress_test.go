@@ -62,6 +62,28 @@ func TestIsOpenAIWSIngressPreviousResponseNotFound(t *testing.T) {
 	))
 }
 
+func TestShouldForceNewConnOnOpenAIWSIngressRetry(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		lease *openAIWSConnLease
+		want  bool
+	}{
+		{name: "nil lease", lease: nil, want: false},
+		{name: "fresh lease", lease: &openAIWSConnLease{reused: false}, want: false},
+		{name: "reused lease", lease: &openAIWSConnLease{reused: true}, want: true},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tt.want, shouldForceNewConnOnOpenAIWSIngressRetry(tt.lease))
+		})
+	}
+}
+
 func TestOpenAIWSIngressPreviousResponseRecoveryEnabled(t *testing.T) {
 	t.Parallel()
 
