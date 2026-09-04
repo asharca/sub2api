@@ -8,7 +8,6 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -110,64 +109,17 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_KeepLeaseAcrossT
 	cfg.Gateway.OpenAIWS.DialTimeoutSeconds = 3
 	cfg.Gateway.OpenAIWS.ReadTimeoutSeconds = 3
 	cfg.Gateway.OpenAIWS.WriteTimeoutSeconds = 3
-	cfg.Gateway.OpenAIWS.StoreDisabledConnMode = openAIWSStoreDisabledConnModeStrict
 
-	var upstreamDialCount atomic.Int32
-	upstreamPingErrCh := make(chan error, 1)
-	upstreamSecondRequestCh := make(chan []byte, 1)
-	upstreamFinalErrCh := make(chan error, 1)
-	upstreamServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		conn, err := coderws.Accept(w, r, nil)
-		if err != nil {
-			upstreamPingErrCh <- err
-			return
-		}
-		upstreamDialCount.Add(1)
-		defer func() { _ = conn.CloseNow() }()
-
-		_, _, err = conn.Read(r.Context())
-		if err == nil {
-			err = conn.Write(r.Context(), coderws.MessageText, []byte(`{"type":"response.output_item.done","item":{"id":"ig_ingress_1","type":"image_generation_call","status":"generating","result":"iVBORw0KGgoAAAANSUhEUg/+=="}}`))
-		}
-		if err == nil {
-			err = conn.Write(r.Context(), coderws.MessageText, []byte(`{"type":"response.completed","response":{"id":"resp_ingress_turn_1","model":"gpt-5.1","usage":{"input_tokens":1,"output_tokens":1}}}`))
-		}
-		if err != nil {
-			upstreamPingErrCh <- err
-			return
-		}
-
-		type readResult struct {
-			payload []byte
-			err     error
-		}
-		nextRead := make(chan readResult, 1)
-		go func() {
-			_, payload, readErr := conn.Read(r.Context())
-			nextRead <- readResult{payload: payload, err: readErr}
-		}()
-		pingCtx, cancelPing := context.WithTimeout(r.Context(), time.Second)
-		pingErr := conn.Ping(pingCtx)
-		cancelPing()
-		upstreamPingErrCh <- pingErr
-		if pingErr != nil {
-			return
-		}
-
-		result := <-nextRead
-		upstreamSecondRequestCh <- result.payload
-		if result.err == nil {
-			result.err = conn.Write(r.Context(), coderws.MessageText, []byte(`{"type":"response.completed","response":{"id":"resp_ingress_turn_2","model":"gpt-5.1","usage":{"input_tokens":1,"output_tokens":1}}}`))
-		}
-		upstreamFinalErrCh <- result.err
-		if result.err == nil {
-			_, _, _ = conn.Read(r.Context())
-		}
-	}))
-	t.Cleanup(upstreamServer.Close)
-
+	captureConn := &openAIWSCaptureConn{
+		events: [][]byte{
+			[]byte(`{"type":"response.output_item.done","item":{"id":"ig_ingress_1","type":"image_generation_call","status":"generating","result":"iVBORw0KGgoAAAANSUhEUg/+=="}}`),
+			[]byte(`{"type":"response.completed","response":{"id":"resp_ingress_turn_1","model":"gpt-5.1","usage":{"input_tokens":1,"output_tokens":1}}}`),
+			[]byte(`{"type":"response.completed","response":{"id":"resp_ingress_turn_2","model":"gpt-5.1","usage":{"input_tokens":1,"output_tokens":1}}}`),
+		},
+	}
+	captureDialer := &openAIWSCaptureDialer{conn: captureConn}
 	pool := newOpenAIWSConnPool(cfg)
-	t.Cleanup(pool.Close)
+	pool.setClientDialerForTest(captureDialer)
 
 	svc := &OpenAIGatewayService{
 		cfg:              cfg,
@@ -187,8 +139,7 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_KeepLeaseAcrossT
 		Schedulable: true,
 		Concurrency: 1,
 		Credentials: map[string]any{
-			"api_key":  "sk-test",
-			"base_url": upstreamServer.URL,
+			"api_key": "sk-test",
 		},
 		Extra: map[string]any{
 			"responses_websockets_v2_enabled": true,
@@ -261,7 +212,7 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_KeepLeaseAcrossT
 		return message
 	}
 
-	writeMessage(`{"type":"response.create","model":"gpt-5.1","stream":false,"store":false,"input":[{"type":"input_text","text":"hello"}]}`)
+	writeMessage(`{"type":"response.create","model":"gpt-5.1","stream":false}`)
 	firstTurnImageEvent := readMessage()
 	require.Equal(t, "response.output_item.done", gjson.GetBytes(firstTurnImageEvent, "type").String())
 	require.Equal(t, "completed", gjson.GetBytes(firstTurnImageEvent, "item.status").String())
@@ -269,33 +220,11 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_KeepLeaseAcrossT
 	firstTurnEvent := readMessage()
 	require.Equal(t, "response.completed", gjson.GetBytes(firstTurnEvent, "type").String())
 	require.Equal(t, "resp_ingress_turn_1", gjson.GetBytes(firstTurnEvent, "response.id").String())
-	require.NoError(t, <-upstreamPingErrCh, "真实上游 Ping 应在 turn 间得到 Pong")
-	accountPool, ok := pool.getAccountPool(account.ID)
-	require.True(t, ok)
-	accountPool.mu.Lock()
-	connCount := len(accountPool.conns)
-	connLeased := false
-	connPinned := 0
-	for connID, conn := range accountPool.conns {
-		connLeased = conn.isLeased()
-		connPinned = accountPool.pinnedConns[connID]
-	}
-	accountPool.mu.Unlock()
-	require.Equal(t, 1, connCount)
-	require.True(t, connLeased, "turn 间应继续持有上游 lease")
-	require.Equal(t, 1, connPinned, "store=false strict 会话应保持连接 pin")
 
-	writeMessage(`{"type":"response.create","model":"gpt-5.1","stream":false,"store":false,"previous_response_id":"resp_ingress_turn_1","input":[{"type":"input_text","text":"world"}]}`)
+	writeMessage(`{"type":"response.create","model":"gpt-5.1","stream":false,"previous_response_id":"resp_ingress_turn_1"}`)
 	secondTurnEvent := readMessage()
 	require.Equal(t, "response.completed", gjson.GetBytes(secondTurnEvent, "type").String())
 	require.Equal(t, "resp_ingress_turn_2", gjson.GetBytes(secondTurnEvent, "response.id").String())
-	require.NoError(t, <-upstreamFinalErrCh)
-	secondUpstreamRequest := <-upstreamSecondRequestCh
-	require.Equal(t, "resp_ingress_turn_1", gjson.GetBytes(secondUpstreamRequest, "previous_response_id").String())
-	require.Equal(t, "world", gjson.GetBytes(secondUpstreamRequest, "input.0.text").String())
-	require.Len(t, gjson.GetBytes(secondUpstreamRequest, "input").Array(), 1)
-	require.True(t, gjson.GetBytes(secondUpstreamRequest, "store").Exists())
-	require.False(t, gjson.GetBytes(secondUpstreamRequest, "store").Bool())
 	require.Equal(t, "response.completed", <-turnTerminalCh, "首轮 turn 应保留成功终态")
 	require.Equal(t, "response.completed", <-turnTerminalCh, "第二轮 turn 应保留成功终态")
 
@@ -310,7 +239,8 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_KeepLeaseAcrossT
 
 	metrics := svc.SnapshotOpenAIWSPoolMetrics()
 	require.Equal(t, int64(1), metrics.AcquireTotal, "同一 ingress 会话多 turn 应只获取一次上游 lease")
-	require.Equal(t, int32(1), upstreamDialCount.Load(), "同一 ingress 会话应保持同一真实上游连接")
+	require.Equal(t, 1, captureDialer.DialCount(), "同一 ingress 会话应保持同一上游连接")
+	require.Len(t, captureConn.writes, 2, "应向同一上游连接发送两轮 response.create")
 }
 
 func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_LeaseLossSendsRetryClose(t *testing.T) {

@@ -836,14 +836,13 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 	}
 
 	agentTaskRecoveryTried := false
-	forceNewConnOnRetry := false
-	var acquireTurnLease func(int, string, bool, bool) (*openAIWSConnLease, error)
-	acquireTurnLease = func(turn int, preferred string, forcePreferredConn bool, forceNewConn bool) (*openAIWSConnLease, error) {
+	var acquireTurnLease func(int, string, bool) (*openAIWSConnLease, error)
+	acquireTurnLease = func(turn int, preferred string, forcePreferredConn bool) (*openAIWSConnLease, error) {
 		req := cloneOpenAIWSAcquireRequest(baseAcquireReq)
 		req.PreferredConnID = strings.TrimSpace(preferred)
 		req.ForcePreferredConn = forcePreferredConn
 		// dedicated 模式下每次获取均新建连接，避免跨会话复用残留上下文。
-		req.ForceNewConn = dedicatedMode || forceNewConn
+		req.ForceNewConn = dedicatedMode
 		acquireCtx, acquireCancel := context.WithTimeout(ctx, acquireTimeout)
 		lease, acquireErr := pool.Acquire(acquireCtx, req)
 		acquireCancel()
@@ -853,7 +852,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			if recoveryErr := s.recoverAgentIdentityTask(ctx, account, account.GetCredential("task_id")); recoveryErr != nil {
 				return nil, fmt.Errorf("agent identity task recovery failed: %w", recoveryErr)
 			}
-			return acquireTurnLease(turn, preferred, forcePreferredConn, forceNewConn)
+			return acquireTurnLease(turn, preferred, forcePreferredConn)
 		}
 		if acquireErr != nil {
 			if isOpenAIWSSessionPreempted(ctx) {
@@ -1420,10 +1419,6 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			return false
 		}
 		turnRetry++
-		// A reused lease may be stale between turns (for example when no reader
-		// is consuming upstream control frames). Force the one retry to dial a
-		// fresh socket; keep fresh-lease retries on the existing capacity path.
-		forceNewConnOnRetry = shouldForceNewConnOnOpenAIWSIngressRetry(sessionLease)
 		logOpenAIWSModeInfo(
 			"ingress_ws_turn_retry account_id=%d turn=%d retry=%d reason=%s conn_id=%s",
 			account.ID,
@@ -1602,12 +1597,11 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 		}
 		forcePreferredConn := isStrictAffinityTurn(currentPayload)
 		if sessionLease == nil {
-			acquiredLease, acquireErr := acquireTurnLease(turn, preferredConnID, forcePreferredConn, forceNewConnOnRetry)
+			acquiredLease, acquireErr := acquireTurnLease(turn, preferredConnID, forcePreferredConn)
 			if acquireErr != nil {
 				return fmt.Errorf("acquire upstream websocket: %w", acquireErr)
 			}
 			sessionLease = acquiredLease
-			forceNewConnOnRetry = false
 			sessionConnID = strings.TrimSpace(sessionLease.ConnID())
 			if storeDisabled {
 				pinSessionConn(sessionConnID)
@@ -1711,12 +1705,11 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 				}
 				resetSessionLease(true)
 
-				acquiredLease, acquireErr := acquireTurnLease(turn, preferredConnID, forcePreferredConn, forceNewConnOnRetry)
+				acquiredLease, acquireErr := acquireTurnLease(turn, preferredConnID, forcePreferredConn)
 				if acquireErr != nil {
 					return fmt.Errorf("acquire upstream websocket after preflight ping fail: %w", acquireErr)
 				}
 				sessionLease = acquiredLease
-				forceNewConnOnRetry = false
 				sessionConnID = strings.TrimSpace(sessionLease.ConnID())
 				if storeDisabled {
 					pinSessionConn(sessionConnID)

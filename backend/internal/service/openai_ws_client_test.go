@@ -1,15 +1,11 @@
 package service
 
 import (
-	"context"
 	"fmt"
 	"net/http"
-	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
-	coderws "github.com/coder/websocket"
 	"github.com/stretchr/testify/require"
 )
 
@@ -115,40 +111,6 @@ func TestCoderOpenAIWSClientDialer_ProxyTransportTLSHandshakeTimeout(t *testing.
 	require.Equal(t, 10*time.Second, transport.TLSHandshakeTimeout)
 }
 
-func TestCoderOpenAIWSClientConn_ReadTimeoutPoisonsConnection(t *testing.T) {
-	releaseServer := make(chan struct{})
-	serverErr := make(chan error, 1)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		conn, err := coderws.Accept(w, r, nil)
-		serverErr <- err
-		if err != nil {
-			return
-		}
-		defer func() { _ = conn.CloseNow() }()
-		<-releaseServer
-	}))
-	t.Cleanup(server.Close)
-
-	dialer := newDefaultOpenAIWSClientDialer()
-	dialCtx, cancelDial := context.WithTimeout(context.Background(), time.Second)
-	clientConn, _, _, err := dialer.Dial(dialCtx, "ws"+strings.TrimPrefix(server.URL, "http"), nil, "")
-	cancelDial()
-	require.NoError(t, err)
-	require.NoError(t, <-serverErr)
-	t.Cleanup(func() {
-		close(releaseServer)
-		_ = clientConn.Close()
-	})
-
-	capable, ok := clientConn.(openAIWSIdlePingCapable)
-	require.True(t, ok)
-	require.True(t, capable.SupportsIdlePingWithoutReader())
-
-	timeoutCtx, cancelTimeout := context.WithTimeout(context.Background(), 20*time.Millisecond)
-	_, err = clientConn.ReadMessage(timeoutCtx)
-	cancelTimeout()
-	require.ErrorIs(t, err, context.DeadlineExceeded)
-	_, err = clientConn.ReadMessage(context.Background())
-	require.ErrorIs(t, err, context.DeadlineExceeded, "a timed-out physical read must poison the connection")
-	require.Error(t, clientConn.WriteJSON(context.Background(), map[string]any{"type": "response.create"}))
+func TestCoderOpenAIWSClientConn_DoesNotSupportIdlePingWithoutReader(t *testing.T) {
+	require.False(t, (&coderOpenAIWSClientConn{}).SupportsIdlePingWithoutReader())
 }

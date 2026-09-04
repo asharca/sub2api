@@ -761,13 +761,6 @@ func (p *openAIWSConnPool) runBackgroundPingSweep() {
 			continue
 		}
 		g.Go(func() error {
-			if !item.conn.tryAcquire() {
-				return nil
-			}
-			defer item.conn.release()
-			if item.conn.waiters.Load() > 0 {
-				return nil
-			}
 			if err := item.conn.pingWithTimeout(openAIWSConnHealthCheckTO); err != nil {
 				p.evictConn(item.accountID, item.conn.id)
 			}

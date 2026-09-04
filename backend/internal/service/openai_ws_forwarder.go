@@ -179,14 +179,6 @@ func isOpenAIWSIngressTurnRetryable(err error) bool {
 	}
 }
 
-// shouldForceNewConnOnOpenAIWSIngressRetry limits the fresh-dial mitigation to
-// leases that came from the pool. A lease created by the current acquire is
-// already fresh, so forcing another dial would change the existing capacity
-// and queueing behavior without addressing a stale reused socket.
-func shouldForceNewConnOnOpenAIWSIngressRetry(lease *openAIWSConnLease) bool {
-	return lease != nil && lease.Reused()
-}
-
 func openAIWSIngressTurnRetryReason(err error) string {
 	var turnErr *openAIWSIngressTurnError
 	if !errors.As(err, &turnErr) || turnErr == nil {
