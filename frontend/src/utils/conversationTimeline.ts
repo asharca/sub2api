@@ -8,6 +8,7 @@ export interface ConversationPart {
   kind: 'text' | 'json' | 'media'
   text: string
   label?: string
+  url?: string
 }
 
 export interface ConversationOperation {
@@ -112,7 +113,7 @@ function buildWebSocketTimeline(request: ParsedPayload, response: ParsedPayload)
       messages: [
         ...(turn.request === undefined ? [] : extractRequestMessages(asJSONPayload(turn.request))),
         ...(turn.response === undefined ? [] : extractResponseMessages(asJSONPayload(turn.response)))
-      ]
+      ].map((message) => ({ ...message, id: `turn-${index}-${message.id}` }))
     }))
     .filter((round) => round.messages.length > 0)
   const messages = rounds.flatMap((round) => round.messages)
@@ -244,16 +245,7 @@ function extractResponseMessages(payload: ParsedPayload): ConversationMessage[] 
 
   const output = asArray(value.output)
   output.forEach((item, index) => {
-    const record = asRecord(item)
-    if (!record) return
-    if (record.type === 'message' || record.role) {
-      messages.push(...normalizeMessage(record, 'response', `response-output-${index + 1}`))
-      return
-    }
-    const operation = normalizeOperation(record, `response-output-operation-${index + 1}`)
-    if (operation) {
-      messages.push(createMessage('response', 'assistant', [], [operation], `response-output-${index + 1}`))
-    }
+    messages.push(...normalizeMessage(item, 'response', `response-output-${index + 1}`))
   })
 
   if (messages.length === 0) {
@@ -277,8 +269,12 @@ function extractResponseMessages(payload: ParsedPayload): ConversationMessage[] 
 }
 
 function extractSseMessages(events: ParsedSseEvent[]): ConversationMessage[] {
+  if (events.some((event) => String(asRecord(event.data)?.type ?? event.event ?? '').startsWith('response.'))) {
+    return extractResponsesStream(events)
+  }
   const messages: ConversationMessage[] = []
   const textParts: string[] = []
+  const reasoningParts: string[] = []
   const toolCalls = new Map<string, ConversationOperation>()
   const toolResults: ConversationOperation[] = []
 
@@ -290,19 +286,20 @@ function extractSseMessages(events: ParsedSseEvent[]): ConversationMessage[] {
     const choice = asRecord(asArray(data.choices)[0])
     const delta = choice ? asRecord(choice.delta) : undefined
     const text = firstString(
-      data.delta,
-      data.text,
+      asRecord(data.delta)?.text,
       asRecord(data.content_block)?.text,
       delta?.content
     )
     if (text) textParts.push(text)
+    const reasoning = firstString(delta?.reasoning_content, delta?.reasoning, asRecord(data.delta)?.thinking)
+    if (reasoning) reasoningParts.push(reasoning)
 
     const nestedOperation = data.item ?? data.content_block ?? data.output_item
     const operation = normalizeOperation(nestedOperation ?? data, `sse-operation-${event.index}`)
     if (operation?.kind === 'result') {
       toolResults.push(operation)
     } else if (operation) {
-      const key = operation.callId || operation.id
+      const key = data.index !== undefined ? `block-${data.index}` : operation.callId || operation.id
       const existing = toolCalls.get(key)
       toolCalls.set(key, existing ? mergeOperation(existing, operation) : operation)
     }
@@ -316,17 +313,17 @@ function extractSseMessages(events: ParsedSseEvent[]): ConversationMessage[] {
         kind: 'call',
         name: firstString(functionValue?.name, call?.name) || 'function',
         callId: firstString(call?.id),
-        input: parseMaybeJson(functionValue?.arguments)
+        input: functionValue?.arguments
       }
-      const key = operation.callId || operation.id
+      const key = `choice-${choice?.index ?? 0}-tool-${call?.index ?? index}`
       const existing = toolCalls.get(key)
       toolCalls.set(key, existing ? mergeOperation(existing, operation) : operation)
     })
 
-    if (eventType.includes('arguments.delta') || eventType.includes('input_json_delta')) {
+    if (eventType.includes('arguments.delta') || asRecord(data.delta)?.type === 'input_json_delta') {
       const partial = firstString(data.delta, asRecord(data.delta)?.partial_json)
       if (partial) {
-        const key = firstString(data.item_id, data.call_id, data.output_index) || `sse-operation-${event.index}`
+        const key = data.index !== undefined ? `block-${data.index}` : firstString(data.item_id, data.call_id) || `sse-operation-${event.index}`
         const current = toolCalls.get(key) || {
           id: key,
           kind: 'call' as const,
@@ -339,14 +336,64 @@ function extractSseMessages(events: ParsedSseEvent[]): ConversationMessage[] {
     }
   }
 
-  if (textParts.length > 0 || toolCalls.size > 0) {
-    messages.push(createMessage('response', 'assistant', textParts.length ? [{ kind: 'text', text: textParts.join('') }] : [], [
-      ...toolCalls.values(),
+  if (textParts.length > 0 || reasoningParts.length > 0 || toolCalls.size > 0 || toolResults.length > 0) {
+    const parts: ConversationPart[] = []
+    if (reasoningParts.length) parts.push({ kind: 'text', label: 'reasoning', text: reasoningParts.join('') })
+    if (textParts.length) parts.push({ kind: 'text', text: textParts.join('') })
+    messages.push(createMessage('response', 'assistant', parts, [
+      ...[...toolCalls.values()].map((operation) => ({ ...operation, input: parseMaybeJson(operation.input) })),
       ...toolResults
     ], 'response-stream'))
   }
 
   return messages
+}
+
+// Deltas update an output item; done/completed snapshots replace it, never append it twice.
+function extractResponsesStream(events: ParsedSseEvent[]): ConversationMessage[] {
+  const items = new Map<string, JsonRecord>()
+  const errors: ConversationMessage[] = []
+  for (const event of events) {
+    const data = asRecord(event.data)
+    if (!data) continue
+    const type = String(data.type ?? event.event ?? '')
+    const response = asRecord(data.response)
+    if (response && Array.isArray(response.output) && response.output.length) {
+      items.clear()
+      response.output.forEach((value, index) => {
+        const item = asRecord(value)
+        if (item) items.set(String(item.id ?? index), item)
+      })
+    }
+    const snapshot = asRecord(data.item)
+    const key = String(snapshot?.id ?? data.item_id ?? data.output_index ?? 0)
+    if (snapshot && (type === 'response.output_item.added' || type === 'response.output_item.done')) {
+      items.set(key, snapshot)
+    } else if (type.includes('function_call_arguments.') || type.includes('custom_tool_call_input.')) {
+      const field = type.includes('custom_tool') ? 'input' : 'arguments'
+      const item = items.get(key) || { type: field === 'input' ? 'custom_tool_call' : 'function_call' }
+      if (data.name) item.name = data.name
+      if (data.call_id) item.call_id = data.call_id
+      item[field] = type.endsWith('.delta') ? String(item[field] ?? '') + String(data.delta ?? '') : data[field] ?? item[field]
+      items.set(key, item)
+    } else if (/^response\.(output_text|refusal|reasoning_summary_text)\.(delta|done)$/.test(type)) {
+      const reasoning = type.includes('reasoning_summary')
+      const field = reasoning ? 'summary' : 'content'
+      const textField = type.includes('refusal') ? 'refusal' : 'text'
+      const item = items.get(key) || { type: reasoning ? 'reasoning' : 'message', role: 'assistant' }
+      const parts = [...asArray(item[field])]
+      const index = Number(data.content_index ?? data.summary_index ?? 0)
+      const part = { ...asRecord(parts[index]), type: reasoning ? 'summary_text' : textField === 'refusal' ? 'refusal' : 'output_text' }
+      const content: JsonRecord = part
+      content[textField] = type.endsWith('.delta') ? String(content[textField] ?? '') + String(data.delta ?? '') : data[textField] ?? content[textField]
+      parts[index] = content
+      item[field] = parts
+      items.set(key, item)
+    }
+    const error = data.error ?? response?.error ?? (type === 'error' ? data : undefined)
+    if (error) errors.push(createMessage('response', 'assistant', [{ kind: 'json', label: 'error', text: formatValue(error) }], [], `response-error-${event.index}`))
+  }
+  return [...[...items.values()].flatMap((item, index) => normalizeMessage(item, 'response', `response-output-${index}`)), ...errors]
 }
 
 function normalizeMessage(value: unknown, source: ConversationSource, id: string): ConversationMessage[] {
@@ -356,7 +403,9 @@ function normalizeMessage(value: unknown, source: ConversationSource, id: string
     return text ? [createMessage(source, source === 'request' ? 'user' : 'assistant', [{ kind: 'text', text }], [], id)] : []
   }
 
-  const role = normalizeRole(firstString(record.role, record.author_role, record.type))
+  const itemType = String(record.type ?? '')
+  const role = normalizeRole(firstString(record.role, record.author_role, record.author,
+    itemType.endsWith('_call_output') ? 'tool' : itemType.endsWith('_call') || itemType === 'reasoning' ? 'assistant' : source === 'response' ? 'assistant' : itemType))
   const operations = collectOperations(record, id)
   const parts = role === 'tool' && operations.length > 0
     ? []
@@ -364,12 +413,23 @@ function normalizeMessage(value: unknown, source: ConversationSource, id: string
   if (record.thinking !== undefined) {
     parts.push(...contentToParts(record.thinking))
   }
+  if (itemType === 'reasoning') {
+    parts.push(...contentToParts(record.summary).map((part) => ({ ...part, label: 'reasoning' })))
+    if (!parts.length && record.encrypted_content) parts.push({ kind: 'media', label: 'reasoning', text: '[encrypted_content]' })
+  }
+  for (const reasoning of [record.reasoning_content, record.reasoning]) {
+    if (typeof reasoning === 'string') parts.unshift({ kind: 'text', label: 'reasoning', text: reasoning })
+  }
+  if (typeof record.refusal === 'string') parts.push({ kind: 'text', label: 'refusal', text: record.refusal })
 
   if (parts.length === 0 && operations.length === 0) {
     const fallback = pickMessageText(record)
     if (fallback) parts.push({ kind: 'text', text: fallback })
   }
 
+  if (parts.length === 0 && operations.length === 0 && itemType && itemType !== 'message') {
+    parts.push({ kind: 'json', label: itemType, text: formatValue(record) })
+  }
   if (parts.length === 0 && operations.length === 0) return []
   return [createMessage(source, role, parts, operations, id)]
 }
@@ -421,14 +481,14 @@ function normalizeOperation(value: unknown, id: string): ConversationOperation |
   const functionValue = asRecord(record.function)
   const isResult =
     type.includes('result') ||
-    type.includes('output') ||
+    type.endsWith('_output') ||
     type === 'function_response' ||
     record.functionResponse !== undefined ||
     record.role === 'tool' ||
     record.tool_call_id !== undefined ||
     record.call_id !== undefined && type.includes('output')
   const looksLikeCall =
-    type.includes('tool') ||
+    type.includes('tool') || type.endsWith('_call') || type.endsWith('_call_output') ||
     type.includes('function') ||
     record.function_call !== undefined ||
     record.functionCall !== undefined ||
@@ -455,8 +515,8 @@ function normalizeOperation(value: unknown, id: string): ConversationOperation |
     id,
     kind: isResult ? 'result' : 'call',
     name,
-    callId: firstString(record.call_id, record.tool_call_id, record.id, functionCall?.call_id),
-    input: isResult ? undefined : parseMaybeJson(input),
+    callId: firstString(record.call_id, record.tool_call_id, record.tool_use_id, record.id, functionCall?.call_id),
+    input: isResult ? undefined : parseMaybeJson(input ?? record.action),
     output: isResult ? parseMaybeJson(output) : undefined
   }
 }
@@ -471,14 +531,16 @@ function contentToParts(value: unknown): ConversationPart[] {
   const type = String(record.type ?? '').toLowerCase()
   if (type.includes('tool') || type.includes('function') || type.includes('result')) return []
   if (type.includes('image') || record.inlineData !== undefined || record.image_url !== undefined) {
-    return [{ kind: 'media', label: 'image', text: '[image]' }]
+    return [{ kind: 'media', label: 'image', text: '[image]', url: firstString(asRecord(record.image_url)?.url, record.image_url) }]
   }
+  if (type === 'thinking') return [{ kind: 'text', label: 'reasoning', text: firstString(record.thinking) }]
+  if (type === 'refusal') return [{ kind: 'text', label: 'refusal', text: firstString(record.refusal) }]
   if (typeof record.text === 'string') return [{ kind: 'text', text: record.text }]
   if (typeof record.input_text === 'string') return [{ kind: 'text', text: record.input_text }]
   if (typeof record.output_text === 'string') return [{ kind: 'text', text: record.output_text }]
   if (record.parts !== undefined) return contentToParts(record.parts)
   if (record.content !== undefined && record.content !== value) return contentToParts(record.content)
-  return []
+  return [{ kind: 'json', label: type || 'content', text: formatValue(record) }]
 }
 
 function pickMessageText(record: JsonRecord): string {
@@ -517,8 +579,8 @@ function mergeOperationValue(base: unknown, next: unknown): unknown {
 }
 
 function appendPartialJson(current: unknown, partial: string): unknown {
-  const existing = typeof current === 'string' ? current : current ? formatValue(current) : ''
-  return parseMaybeJson(existing + partial)
+  const existing = typeof current === 'string' ? current : ''
+  return existing + partial
 }
 
 function parseMaybeJson(value: unknown): unknown {

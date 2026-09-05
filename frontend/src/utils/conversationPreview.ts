@@ -1,7 +1,5 @@
 import { buildConversationTimeline } from './conversationTimeline'
 
-const snippetLimit = 180
-
 export interface ConversationPreview {
   text: string
   messageCount: number
@@ -12,13 +10,10 @@ export function buildConversationPreview(requestBody: string, responseBody: stri
   const timeline = buildConversationTimeline(requestBody, responseBody)
   const messages = timeline.rounds.flatMap((round) => round.messages)
   const newestMessages = [...messages].reverse()
-  const rawText =
-    previewTextFrom(newestMessages.filter((message) => message.role === 'user')) ||
-    previewTextFrom(newestMessages.filter((message) => message.role === 'assistant')) ||
-    previewTextFrom(newestMessages)
+  const rawText = previewTextFrom(newestMessages.filter((message) => message.role === 'user'))
 
   return {
-    text: compactText(rawText),
+    text: rawText.replace(/\s+/g, ' ').trim(),
     messageCount: timeline.messageCount,
     operationCount: timeline.operationCount
   }
@@ -26,16 +21,11 @@ export function buildConversationPreview(requestBody: string, responseBody: stri
 
 function previewTextFrom(messages: ReturnType<typeof buildConversationTimeline>['rounds'][number]['messages']): string {
   for (const message of messages) {
-    const text = message.parts.map((part) => part.text).find((part) => !looksLikePayload(part))
+    const text = message.parts.map((part) => part.text).join('\n')
+    if (message.id === 'request-text' && looksLikePayload(text)) return ''
     if (text) return text
   }
   return ''
-}
-
-function compactText(value: string): string {
-  const compact = value.replace(/\s+/g, ' ').trim()
-  if (compact.length <= snippetLimit) return compact
-  return `${compact.slice(0, snippetLimit - 1).trimEnd()}…`
 }
 
 function looksLikePayload(value: string): boolean {

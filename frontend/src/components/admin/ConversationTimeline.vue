@@ -1,5 +1,5 @@
 <template>
-  <section class="overflow-hidden rounded-2xl border border-gray-200 bg-gradient-to-b from-gray-50 to-white dark:border-dark-700 dark:from-dark-900 dark:to-dark-800">
+  <section class="overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-dark-700 dark:bg-dark-800">
     <div class="flex flex-wrap items-start justify-between gap-3 border-b border-gray-200 px-4 py-3 dark:border-dark-700 sm:px-5">
       <div>
         <div class="flex items-center gap-2">
@@ -114,7 +114,12 @@
                     <div v-if="message.parts.length" class="space-y-2">
                       <div v-for="(part, partIndex) in message.parts" :key="`${message.id}-part-${partIndex}`" class="rounded-lg bg-gray-50 px-3 py-2.5 dark:bg-dark-900/70">
                         <div v-if="part.label" class="mb-1 text-[10px] font-semibold uppercase tracking-wide text-gray-400 dark:text-dark-500">{{ part.label }}</div>
-                        <p class="whitespace-pre-wrap break-words text-sm leading-6 text-gray-700 dark:text-dark-100" :class="part.kind === 'media' ? 'font-mono text-xs text-gray-500 dark:text-dark-300' : ''">
+                        <details v-if="part.url && /^data:image\/(png|jpeg|gif|webp);base64,/i.test(part.url)">
+                          <summary class="cursor-pointer text-xs text-gray-500">{{ part.label }}</summary>
+                          <img :src="part.url" :alt="part.label || 'image'" loading="lazy" class="mt-2 max-h-96 max-w-full object-contain">
+                        </details>
+                        <a v-else-if="part.url && /^https?:\/\//i.test(part.url)" :href="part.url" target="_blank" rel="noopener noreferrer" class="break-all text-sm text-primary-600">{{ part.url }}</a>
+                        <p v-else class="whitespace-pre-wrap break-words text-sm leading-6 text-gray-700 dark:text-dark-100" :class="part.kind === 'media' ? 'font-mono text-xs text-gray-500 dark:text-dark-300' : ''">
                           <template v-for="(segment, segmentIndex) in highlightedSegments(part.text)" :key="`${message.id}-part-${partIndex}-segment-${segmentIndex}`">
                             <mark v-if="segment.match" class="rounded bg-amber-200 px-0.5 text-inherit dark:bg-amber-400/35">{{ segment.text }}</mark>
                             <template v-else>{{ segment.text }}</template>
@@ -138,7 +143,7 @@
                           </span>
                         </div>
 
-                        <div v-if="operation.input !== undefined || operation.output !== undefined" class="mt-2 grid gap-2 lg:grid-cols-2">
+                        <div v-if="operation.input !== undefined || operation.output !== undefined" class="mt-2 grid gap-2" :class="operation.input !== undefined && operation.output !== undefined ? 'lg:grid-cols-2' : ''">
                           <div v-if="operation.input !== undefined" class="overflow-hidden rounded-lg border border-indigo-100 bg-white/80 dark:border-indigo-500/20 dark:bg-dark-900/60">
                             <div class="border-b border-indigo-100 px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-indigo-500 dark:border-indigo-500/20 dark:text-indigo-300">{{ text('timeline.input') }}</div>
                             <pre class="max-h-48 overflow-auto whitespace-pre-wrap break-words p-2.5 font-mono text-[11px] leading-5 text-gray-700 dark:text-dark-100"><template v-for="(segment, segmentIndex) in highlightedSegments(formatValue(operation.input))" :key="`${operation.id}-input-${segmentIndex}`"><mark v-if="segment.match" class="rounded bg-amber-200 px-0.5 text-inherit dark:bg-amber-400/35">{{ segment.text }}</mark><template v-else>{{ segment.text }}</template></template></pre>

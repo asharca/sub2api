@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest'
 import { parsePayload } from '@/utils/conversationPayload'
 
 describe('parsePayload', () => {
+  it('recognizes streams starting with a keepalive comment', () => {
+    expect(parsePayload(': ping\n\ndata: {"choices":[]}\n\n').format).toBe('sse')
+  })
   it('parses plain JSON payloads', () => {
     const payload = parsePayload('{"messages":[{"role":"user","content":"hello"}]}')
 

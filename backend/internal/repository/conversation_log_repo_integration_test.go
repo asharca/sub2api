@@ -24,7 +24,7 @@ SELECT proparallel::text FROM pg_proc WHERE proname = 'try_parse_conversation_lo
 	body := `{"messages":[` +
 		`{"role":"user","content":"` + strings.Repeat("old context ", 400) + `\u0000"},` +
 		`{"role":"assistant","content":"reply"},` +
-		`{"role":"user","content":[{"type":"text","text":"latest user message"}]},` +
+		`{"role":"user","content":[{"type":"text","text":"latest user message ` + strings.Repeat("context ", 400) + `"},{"type":"text","text":"final instruction"}]},` +
 		`{"role":"user","content":[{"type":"tool_result","content":"tool output"}]}]}`
 	require.Greater(t, len(body), 2048)
 	require.True(t, gjson.Valid(body))
@@ -41,7 +41,7 @@ VALUES ($1, 'anthropic', $2, 'large response')`, requestID, body)
 	items, _, err := repo.List(context.Background(), pagination.PaginationParams{Page: 1, PageSize: 20}, service.ConversationLogFilters{RequestID: requestID})
 	require.NoError(t, err)
 	require.Len(t, items, 1)
-	require.Equal(t, "latest user message", gjson.Get(items[0].RequestBody, "input").String())
+	require.Equal(t, "latest user message "+strings.Repeat("context ", 400)+"\nfinal instruction", gjson.Get(items[0].RequestBody, "input").String())
 	require.Empty(t, items[0].ResponseBody)
 
 	for name, incompatibleBody := range map[string]string{

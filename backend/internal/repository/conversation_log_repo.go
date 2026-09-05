@@ -133,23 +133,19 @@ LEFT JOIN LATERAL (
     OFFSET 0
 ) conversation_user ON conversation_payload.body IS NOT NULL
 LEFT JOIN LATERAL (
-    SELECT LEFT(
-        regexp_replace(
-            LEFT(COALESCE(
+    SELECT COALESCE(
                 CASE
                     WHEN jsonb_typeof(conversation_user.message->'content') = 'string'
                     THEN conversation_user.message->>'content'
                 END,
-                jsonb_path_query_first(conversation_user.message, '$.content[*].text')#>>'{}',
-                jsonb_path_query_first(conversation_user.message, '$.content[*].input_text')#>>'{}',
-                jsonb_path_query_first(conversation_user.message, '$.parts[*].text')#>>'{}',
+                (SELECT string_agg(COALESCE(part->>'text', part->>'input_text'), E'\n' ORDER BY position)
+                 FROM jsonb_array_elements(CASE
+                     WHEN jsonb_typeof(conversation_user.message->'content') = 'array' THEN conversation_user.message->'content'
+                     WHEN jsonb_typeof(conversation_user.message->'parts') = 'array' THEN conversation_user.message->'parts'
+                     ELSE '[]'::jsonb END) WITH ORDINALITY AS blocks(part, position)),
                 conversation_user.message->>'text',
                 conversation_user.message->>'input',
                 ''
-            ), 2048),
-            '[[:space:]]+', ' ', 'g'
-        ),
-        512
     ) AS text
     OFFSET 0
 ) conversation_preview ON conversation_user.message IS NOT NULL

@@ -117,7 +117,7 @@ function parseSsePayload(body: string): ParsedSsePayload | null {
 function looksLikeSse(body: string): boolean {
   const firstLine = normalizeNewlines(body)
     .split('\n')
-    .find((line) => line.trim().length > 0)
+    .find((line) => line.trim().length > 0 && !line.startsWith(':'))
     ?.trimStart()
 
   if (!firstLine) return false

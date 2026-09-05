@@ -122,6 +122,38 @@ function createProductionSeed(id: number, overrides: Partial<ConversationLog>): 
 }
 
 export const conversationLogSeed: ConversationLog[] = [
+  // Structural regression fixture based on September 5 DB samples, not original conversation text.
+  createProductionSeed(997796, {
+    request_id: 'synthetic-openai-long-history-regression',
+    model: 'gpt-5.6-sol',
+    requested_model: 'gpt-5.6-sol',
+    upstream_model: 'gpt-5.6-sol',
+    user_email: '结构回归示例（非原文）',
+    api_key_name: 'Anonymized structure',
+    request_type: 'stream',
+    openai_ws_mode: false,
+    upstream_endpoint: '/v1/responses',
+    status_code: 200,
+    created_at: '2026-09-05T18:00:00+08:00',
+    request_body: JSON.stringify({
+      model: 'gpt-5.6-sol',
+      input: Array.from({ length: 30 }, (_, round) => [
+        { role: 'user', content: [
+          { type: 'input_text', text: `第 ${round + 1} 轮：检查对话记录的解析与展示。` },
+          { type: 'input_text', text: '保留全部消息、推理摘要和工具结果，核对搜索及跳转效果。' }
+        ] },
+        ...Array.from({ length: 7 }, (_, step) => [
+          { type: 'reasoning', summary: [{ type: 'summary_text', text: `步骤 ${step + 1}：读取相关文件并核对解析结果。` }] },
+          { type: 'function_call', name: 'read_file', call_id: `preview-${round}-${step}`, arguments: JSON.stringify({ path: `src/example-${step}.ts` }) },
+          { type: 'function_call_output', call_id: `preview-${round}-${step}`, output: `第 ${round + 1} 轮步骤 ${step + 1} 的工具结果。\n${'Long output line for search and expansion.\n'.repeat(35)}` }
+        ]).flat()
+      ]).flat()
+    }),
+    response_body: `data: ${JSON.stringify({ type: 'response.completed', response: { output: [
+      { type: 'reasoning', id: 'preview-reasoning', summary: [{ type: 'summary_text', text: '检查完成，整理最终结果。' }] },
+      { type: 'message', id: 'preview-answer', role: 'assistant', content: [{ type: 'output_text', text: '已核对 30 轮对话，包括 210 段推理摘要和 210 组工具调用与结果。' }] }
+    ] } })}\n\n`
+  }),
   // Production log 328903: a real HTTP SSE stream, not a WebSocket connection.
   createProductionSeed(328903, {
     model: 'gpt-5.6-luna',

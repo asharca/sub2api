@@ -228,7 +228,7 @@
 
           <template #cell-conversation="{ row }">
             <div class="flex h-[5.25rem] min-w-[18rem] max-w-[26rem] flex-col justify-center">
-              <p v-if="previewFor(row).text" class="max-h-10 overflow-hidden whitespace-pre-wrap break-words text-xs leading-5 text-gray-700 dark:text-dark-100">
+              <p v-if="previewFor(row).text" :title="previewFor(row).text" class="line-clamp-2 whitespace-pre-wrap break-words text-xs leading-5 text-gray-700 dark:text-dark-100">
                 {{ previewFor(row).text }}
               </p>
               <p v-else class="text-xs text-gray-400 dark:text-dark-400">{{ isSeedPreview ? logText('previewUnavailable') : logText('previewOnDemand') }}</p>
@@ -309,11 +309,16 @@
     width="full"
     @close="closeDetail"
   >
-    <div v-if="selectedLog" class="space-y-5">
+    <div v-if="selectedLog" class="space-y-3">
       <div v-if="detailLoading" class="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
         <Icon name="refresh" size="sm" class="animate-spin" />
         {{ t('common.loading') }}
       </div>
+
+      <details v-if="selectedPreview.text" class="border-b border-gray-200 pb-3 dark:border-dark-700">
+        <summary class="cursor-pointer text-sm font-medium text-gray-700 dark:text-dark-100">{{ logText('conversation') }}</summary>
+        <p class="mt-2 max-h-60 overflow-auto whitespace-pre-wrap break-words text-sm leading-6 text-gray-700 dark:text-dark-100">{{ selectedPreview.text }}</p>
+      </details>
 
       <ConversationTimeline
         :key="selectedLog.id"
@@ -447,6 +452,7 @@ const loading = ref(false)
 const detailLoading = ref(false)
 const detailVisible = ref(false)
 const selectedLog = ref<ConversationLog | null>(null)
+const selectedPreview = computed(() => buildConversationPreview(selectedLog.value?.request_body || '', ''))
 const liveStreamEnabled = ref(false)
 const sortBy = ref('created_at')
 const sortOrder = ref<SortOrder>('desc')

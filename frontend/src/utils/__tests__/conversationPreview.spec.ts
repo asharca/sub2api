@@ -2,6 +2,19 @@ import { describe, expect, it } from 'vitest'
 import { buildConversationPreview } from '@/utils/conversationPreview'
 
 describe('buildConversationPreview', () => {
+  it('keeps all blocks of the last user message without a text length cap', () => {
+    const text = 'Context '.repeat(400)
+    const preview = buildConversationPreview(JSON.stringify({ input: [
+      { role: 'user', content: 'older' },
+      { role: 'user', content: [{ type: 'input_text', text }, { type: 'input_text', text: '[Important] final instruction' }] }
+    ] }), '')
+    expect(preview.text).toBe(`${text.trim()} [Important] final instruction`)
+  })
+
+  it('does not replace a missing user message with an assistant reply', () => {
+    expect(buildConversationPreview('{}', JSON.stringify({ content: 'assistant only' })).text).toBe('')
+  })
+
   it('uses the latest user message and keeps the row preview compact', () => {
     const preview = buildConversationPreview(
       JSON.stringify({
