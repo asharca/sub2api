@@ -84,6 +84,31 @@
           </span>
         </div>
 
+        <article v-if="visibleLastUserInput(round)" class="mb-3 overflow-hidden rounded-xl border border-sky-200 bg-sky-50/50 shadow-sm dark:border-sky-500/30 dark:bg-sky-500/10">
+          <header class="flex items-center gap-2 border-b border-sky-100 px-3 py-2.5 dark:border-sky-500/20 sm:px-4">
+            <span class="flex h-6 w-6 items-center justify-center rounded-lg bg-sky-100 text-sky-700 dark:bg-sky-500/20 dark:text-sky-300">
+              <Icon name="user" size="xs" />
+            </span>
+            <span class="text-xs font-semibold text-sky-800 dark:text-sky-200">{{ text('timeline.lastUserInput') }}</span>
+          </header>
+          <div class="space-y-2 p-3 sm:p-4">
+            <div v-for="(part, partIndex) in messageTextParts(visibleLastUserInput(round)!)" :key="`${round.id}-input-${partIndex}`" class="rounded-lg bg-white/80 px-3 py-2.5 dark:bg-dark-900/50">
+              <div v-if="part.label" class="mb-1 text-[10px] font-semibold uppercase tracking-wide text-gray-400 dark:text-dark-500">{{ part.label }}</div>
+              <details v-if="part.url && /^data:image\/(png|jpeg|gif|webp);base64,/i.test(part.url)">
+                <summary class="cursor-pointer text-xs text-gray-500">{{ part.label }}</summary>
+                <img :src="part.url" :alt="part.label || 'image'" loading="lazy" class="mt-2 max-h-96 max-w-full object-contain">
+              </details>
+              <a v-else-if="part.url && /^https?:\/\//i.test(part.url)" :href="part.url" target="_blank" rel="noopener noreferrer" class="break-all text-sm text-primary-600">{{ part.url }}</a>
+              <p v-else class="whitespace-pre-wrap break-words text-sm leading-6 text-gray-700 dark:text-dark-100" :class="part.kind === 'media' ? 'font-mono text-xs text-gray-500 dark:text-dark-300' : ''">
+                <template v-for="(segment, segmentIndex) in highlightedSegments(part.text)" :key="`${round.id}-input-${partIndex}-segment-${segmentIndex}`">
+                  <mark v-if="segment.match" class="rounded bg-amber-200 px-0.5 text-inherit dark:bg-amber-400/35">{{ segment.text }}</mark>
+                  <template v-else>{{ segment.text }}</template>
+                </template>
+              </p>
+            </div>
+          </div>
+        </article>
+
         <article v-if="visibleFinalResponse(round)" class="mb-3 overflow-hidden rounded-xl border border-violet-200 bg-violet-50/50 shadow-sm dark:border-violet-500/30 dark:bg-violet-500/10">
           <header class="flex items-center gap-2 border-b border-violet-100 px-3 py-2.5 dark:border-violet-500/20 sm:px-4">
             <span class="flex h-6 w-6 items-center justify-center rounded-lg bg-violet-100 text-violet-700 dark:bg-violet-500/20 dark:text-violet-300">
@@ -92,7 +117,7 @@
             <span class="text-xs font-semibold text-violet-800 dark:text-violet-200">{{ text('timeline.finalResponse') }}</span>
           </header>
           <div class="space-y-2 p-3 sm:p-4">
-            <div v-for="(part, partIndex) in finalResponseParts(visibleFinalResponse(round)!)" :key="`${round.id}-final-${partIndex}`" class="rounded-lg bg-white/80 px-3 py-2.5 dark:bg-dark-900/50">
+            <div v-for="(part, partIndex) in messageTextParts(visibleFinalResponse(round)!)" :key="`${round.id}-final-${partIndex}`" class="rounded-lg bg-white/80 px-3 py-2.5 dark:bg-dark-900/50">
               <div v-if="part.label" class="mb-1 text-[10px] font-semibold uppercase tracking-wide text-gray-400 dark:text-dark-500">{{ part.label }}</div>
               <details v-if="part.url && /^data:image\/(png|jpeg|gif|webp);base64,/i.test(part.url)">
                 <summary class="cursor-pointer text-xs text-gray-500">{{ part.label }}</summary>
@@ -275,7 +300,15 @@ function roundFinalResponse(round: ConversationRound) {
   return [...round.messages].reverse().find((message) => (
     message.role === 'assistant'
     && message.source === 'response'
-    && finalResponseParts(message).length > 0
+    && messageTextParts(message).length > 0
+  ))
+}
+
+function roundLastUserInput(round: ConversationRound) {
+  return [...round.messages].reverse().find((message) => (
+    message.role === 'user'
+    && message.source === 'request'
+    && messageTextParts(message).length > 0
   ))
 }
 
@@ -284,14 +317,19 @@ function visibleFinalResponse(round: ConversationRound) {
   return message && matchesMessage(message) ? message : undefined
 }
 
-function finalResponseParts(message: ConversationMessage) {
+function visibleLastUserInput(round: ConversationRound) {
+  const message = roundLastUserInput(round)
+  return message && matchesMessage(message) ? message : undefined
+}
+
+function messageTextParts(message: ConversationMessage) {
   return message.parts.filter((part) => part.label !== 'reasoning' && part.text.trim())
 }
 
 function historyMessages(round: ConversationRound) {
   const messages = hasTimelineSearch.value ? round.messages.filter(matchesMessage) : round.messages
-  const finalMessage = roundFinalResponse(round)
-  return messages.filter((message) => message.id !== finalMessage?.id)
+  const highlightedMessageIDs = new Set([roundLastUserInput(round)?.id, roundFinalResponse(round)?.id])
+  return messages.filter((message) => !highlightedMessageIDs.has(message.id))
 }
 
 function displayHistoryMessages(round: ConversationRound) {
@@ -301,12 +339,12 @@ function displayHistoryMessages(round: ConversationRound) {
 
 function roundMessageCount(round: ConversationRound) {
   return hasTimelineSearch.value
-    ? historyMessages(round).length + Number(Boolean(visibleFinalResponse(round)))
+    ? historyMessages(round).length + Number(Boolean(visibleLastUserInput(round))) + Number(Boolean(visibleFinalResponse(round)))
     : round.messages.length
 }
 
 function shouldCollapseRoundHistory(round: ConversationRound) {
-  return !hasTimelineSearch.value && Boolean(roundFinalResponse(round)) && historyMessages(round).length > 6
+  return !hasTimelineSearch.value && Boolean(roundLastUserInput(round) || roundFinalResponse(round)) && historyMessages(round).length > 6
 }
 
 function isRoundHistoryCollapsed(round: ConversationRound) {

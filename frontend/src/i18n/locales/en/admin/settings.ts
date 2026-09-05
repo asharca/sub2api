@@ -1434,6 +1434,7 @@ export default {
         oldestFirst: 'Oldest to newest',
         round: 'Turn {index}',
         context: 'Context',
+        lastUserInput: 'Last user input',
         finalResponse: 'Final response',
         showHistory: 'Show round context ({count})',
         hideHistory: 'Hide round context',

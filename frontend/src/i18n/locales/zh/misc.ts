@@ -191,6 +191,7 @@ export default {
       oldestFirst: '顺序',
       round: '第 {index} 轮',
       context: '上下文',
+      lastUserInput: '本轮用户最后输入',
       finalResponse: '本轮最终回复',
       showHistory: '查看本轮上下文（{count} 条）',
       hideHistory: '收起本轮上下文',
