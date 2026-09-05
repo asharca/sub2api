@@ -318,39 +318,37 @@
     width="full"
     @close="closeDetail"
   >
-    <div v-if="selectedLog" class="space-y-3">
+    <div v-if="selectedLog" class="min-w-0">
       <div v-if="detailLoading" class="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
         <Icon name="refresh" size="sm" class="animate-spin" />
         {{ t('common.loading') }}
       </div>
 
-      <details v-if="selectedPreview.text" class="border-b border-gray-200 pb-3 dark:border-dark-700">
-        <summary class="cursor-pointer text-sm font-medium text-gray-700 dark:text-dark-100">{{ logText('conversation') }}</summary>
-        <p class="mt-2 max-h-60 overflow-auto whitespace-pre-wrap break-words text-sm leading-6 text-gray-700 dark:text-dark-100">{{ selectedPreview.text }}</p>
-      </details>
+      <nav class="flex gap-1 border-b border-gray-200 dark:border-dark-700" role="tablist">
+        <button
+          v-for="tab in detailTabs"
+          :key="tab.id"
+          type="button"
+          role="tab"
+          class="border-b-2 px-4 py-3 text-sm font-medium transition-colors"
+          :class="detailTab === tab.id ? 'border-primary-500 text-primary-600 dark:text-primary-300' : 'border-transparent text-gray-500 hover:text-gray-800 dark:text-dark-400 dark:hover:text-dark-100'"
+          :aria-selected="detailTab === tab.id"
+          @click="detailTab = tab.id"
+        >{{ tab.label }}</button>
+      </nav>
 
-      <ConversationTimeline
-        :key="selectedLog.id"
-        :request-body="selectedLog.request_body"
-        :response-body="selectedLog.response_body"
-        :request-truncated="selectedLog.request_truncated"
-        :response-truncated="selectedLog.response_truncated"
-        :i18n-prefix="conversationLogsI18nPrefix"
-      />
+      <div class="pt-4">
+        <ConversationTimeline
+          v-if="detailTab === 'timeline'"
+          :key="selectedLog.id"
+          :request-body="selectedLog.request_body"
+          :response-body="selectedLog.response_body"
+          :request-truncated="selectedLog.request_truncated"
+          :response-truncated="selectedLog.response_truncated"
+          :i18n-prefix="conversationLogsI18nPrefix"
+        />
 
-      <details class="group overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-dark-700 dark:bg-dark-800">
-        <summary class="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 hover:bg-gray-50 dark:hover:bg-dark-700/60">
-          <span class="min-w-0">
-            <span class="block text-sm font-semibold text-gray-800 dark:text-dark-100">{{ logText('requestInfo') }}</span>
-            <span class="mt-1 block truncate text-xs text-gray-500 dark:text-dark-400">{{ selectedLog.model || selectedLog.requested_model || '-' }} · {{ formatMs(selectedLog.duration_ms) }} · {{ formatNumber(selectedLog.total_tokens) }} {{ logText('totalTokens') }}</span>
-          </span>
-          <span class="flex shrink-0 items-center gap-2">
-            <span class="hidden rounded bg-gray-100 px-2 py-1 text-[10px] font-semibold text-gray-600 dark:bg-dark-700 dark:text-dark-200 sm:inline">{{ selectedLog.platform || '-' }}</span>
-            <span class="rounded px-2 py-1 text-[10px] font-semibold" :class="statusClass(selectedLog.status_code)">{{ selectedLog.status_code || '-' }}</span>
-            <Icon name="chevronDown" size="sm" class="text-gray-400 transition-transform group-open:rotate-180 dark:text-dark-400" />
-          </span>
-        </summary>
-        <div class="grid grid-cols-1 gap-2 border-t border-gray-200 p-3 dark:border-dark-700 sm:grid-cols-2 xl:grid-cols-4">
+        <div v-else-if="detailTab === 'request'" class="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
           <DetailItem v-if="isAdminView" :label="logText('user')" :value="displayUser(selectedLog)" />
           <DetailItem :label="logText('apiKey')" :value="displayApiKey(selectedLog)" />
           <DetailItem v-if="isAdminView" :label="logText('account')" :value="displayAccount(selectedLog)" />
@@ -371,17 +369,8 @@
           <DetailItem :label="logText('responseId')" :value="selectedLog.response_id || '-'" />
           <DetailItem :label="logText('time')" :value="formatDateTime(selectedLog.created_at)" />
         </div>
-      </details>
 
-      <details class="group rounded-xl border border-gray-200 bg-white dark:border-dark-700 dark:bg-dark-800">
-        <summary class="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-semibold text-gray-800 hover:bg-gray-50 dark:text-dark-100 dark:hover:bg-dark-700/60">
-          <span class="flex items-center gap-2">
-            <Icon name="document" size="sm" class="text-gray-400 dark:text-dark-400" />
-            {{ logText('rawPayloads') }}
-          </span>
-          <Icon name="chevronDown" size="sm" class="text-gray-400 transition-transform group-open:rotate-180 dark:text-dark-400" />
-        </summary>
-        <div class="grid grid-cols-1 gap-4 border-t border-gray-200 p-4 dark:border-dark-700 xl:grid-cols-2">
+        <div v-else class="grid grid-cols-1 gap-4 xl:grid-cols-2">
           <PayloadPanel
             :title="logText('requestBody')"
             :body="selectedLog.request_body"
@@ -397,7 +386,7 @@
             @copy="copyText(selectedLog.response_body)"
           />
         </div>
-      </details>
+      </div>
     </div>
   </BaseDialog>
 </template>
@@ -430,6 +419,7 @@ import type { Column } from '@/components/common/types'
 import type { ApiKey, Group, UsageRequestType } from '@/types'
 
 type SortOrder = 'asc' | 'desc'
+type DetailTab = 'timeline' | 'request' | 'raw'
 
 const { t, locale } = useI18n()
 const appStore = useAppStore()
@@ -443,6 +433,12 @@ function logText(key: string, params?: Record<string, unknown>) {
   const path = `${conversationLogsI18nPrefix.value}.${key}`
   return params ? t(path, params) : t(path)
 }
+
+const detailTabs = computed(() => [
+  { id: 'timeline' as const, label: logText('timeline.title') },
+  { id: 'request' as const, label: logText('requestInfo') },
+  { id: 'raw' as const, label: logText('rawPayloads') }
+])
 
 const todayString = () => formatDateForInput(new Date())
 const daysAgoString = (days: number) => {
@@ -461,7 +457,7 @@ const loading = ref(false)
 const detailLoading = ref(false)
 const detailVisible = ref(false)
 const selectedLog = ref<ConversationLog | null>(null)
-const selectedPreview = computed(() => buildConversationPreview(selectedLog.value?.request_body || '', ''))
+const detailTab = ref<DetailTab>('timeline')
 const liveStreamEnabled = ref(false)
 const userApiKeys = ref<ApiKey[]>([])
 const userGroups = ref<Group[]>([])
@@ -828,6 +824,7 @@ function handleSort(key: string, order: SortOrder) {
 
 async function openDetail(row: ConversationLog) {
   selectedLog.value = row
+  detailTab.value = 'timeline'
   detailVisible.value = true
   if (isSeedPreview.value) {
     detailLoading.value = false
@@ -1146,6 +1143,10 @@ onMounted(() => {
   void loadUserFilterOptions()
   loadLogs()
   void loadModelOptions()
+  if (isSeedPreview.value) {
+    const preview = conversationLogSeed.find(row => String(row.id) === route.query.detail)
+    if (preview) void openDetail(preview)
+  }
 })
 
 onUnmounted(() => {
