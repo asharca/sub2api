@@ -132,6 +132,7 @@ describe('buildConversationTimeline', () => {
       ['first', 'one'],
       ['second', 'two']
     ])
+    expect(timeline.rounds[0].messages.at(-1)).toMatchObject({ role: 'assistant', source: 'response' })
   })
 
   it('normalizes Anthropic tool blocks', () => {

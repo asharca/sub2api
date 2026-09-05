@@ -198,6 +198,14 @@ func parseUserConversationLogFilters(c *gin.Context) (service.ConversationLogFil
 		}
 		filters.Stream = &parsed
 	}
+	if mismatchStr := strings.TrimSpace(c.Query("upstream_model_mismatch")); mismatchStr != "" {
+		parsed, err := strconv.ParseBool(mismatchStr)
+		if err != nil {
+			response.BadRequest(c, "Invalid upstream_model_mismatch value, use true or false")
+			return filters, false
+		}
+		filters.UpstreamModelMismatch = &parsed
+	}
 	userTZ := c.Query("timezone")
 	if startDateStr := strings.TrimSpace(c.Query("start_date")); startDateStr != "" {
 		t, err := timezone.ParseInUserLocation("2006-01-02", startDateStr, userTZ)

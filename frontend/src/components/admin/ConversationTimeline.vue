@@ -80,12 +80,48 @@
             {{ roundTitle(round) }}
           </span>
           <span class="text-xs text-gray-400 dark:text-dark-400">
-            {{ text('timeline.roundMessageCount', { count: displayMessages(round).length }) }}
+            {{ text('timeline.roundMessageCount', { count: roundMessageCount(round) }) }}
           </span>
         </div>
 
-        <ol class="relative space-y-3 pl-4 before:absolute before:bottom-3 before:left-[1.15rem] before:top-3 before:w-px before:bg-gray-200 dark:before:bg-dark-600 sm:pl-8">
-          <li v-for="(message, messageIndex) in displayMessages(round)" :key="message.id" class="relative">
+        <article v-if="visibleFinalResponse(round)" class="mb-3 overflow-hidden rounded-xl border border-violet-200 bg-violet-50/50 shadow-sm dark:border-violet-500/30 dark:bg-violet-500/10">
+          <header class="flex items-center gap-2 border-b border-violet-100 px-3 py-2.5 dark:border-violet-500/20 sm:px-4">
+            <span class="flex h-6 w-6 items-center justify-center rounded-lg bg-violet-100 text-violet-700 dark:bg-violet-500/20 dark:text-violet-300">
+              <Icon name="brain" size="xs" />
+            </span>
+            <span class="text-xs font-semibold text-violet-800 dark:text-violet-200">{{ text('timeline.finalResponse') }}</span>
+          </header>
+          <div class="space-y-2 p-3 sm:p-4">
+            <div v-for="(part, partIndex) in finalResponseParts(visibleFinalResponse(round)!)" :key="`${round.id}-final-${partIndex}`" class="rounded-lg bg-white/80 px-3 py-2.5 dark:bg-dark-900/50">
+              <div v-if="part.label" class="mb-1 text-[10px] font-semibold uppercase tracking-wide text-gray-400 dark:text-dark-500">{{ part.label }}</div>
+              <details v-if="part.url && /^data:image\/(png|jpeg|gif|webp);base64,/i.test(part.url)">
+                <summary class="cursor-pointer text-xs text-gray-500">{{ part.label }}</summary>
+                <img :src="part.url" :alt="part.label || 'image'" loading="lazy" class="mt-2 max-h-96 max-w-full object-contain">
+              </details>
+              <a v-else-if="part.url && /^https?:\/\//i.test(part.url)" :href="part.url" target="_blank" rel="noopener noreferrer" class="break-all text-sm text-primary-600">{{ part.url }}</a>
+              <p v-else class="whitespace-pre-wrap break-words text-sm leading-6 text-gray-700 dark:text-dark-100" :class="part.kind === 'media' ? 'font-mono text-xs text-gray-500 dark:text-dark-300' : ''">
+                <template v-for="(segment, segmentIndex) in highlightedSegments(part.text)" :key="`${round.id}-final-${partIndex}-segment-${segmentIndex}`">
+                  <mark v-if="segment.match" class="rounded bg-amber-200 px-0.5 text-inherit dark:bg-amber-400/35">{{ segment.text }}</mark>
+                  <template v-else>{{ segment.text }}</template>
+                </template>
+              </p>
+            </div>
+          </div>
+        </article>
+
+        <button
+          v-if="shouldCollapseRoundHistory(round)"
+          type="button"
+          class="mb-3 inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-50 dark:border-dark-600 dark:bg-dark-800 dark:text-dark-200 dark:hover:bg-dark-700"
+          :aria-expanded="!isRoundHistoryCollapsed(round)"
+          @click="toggleRoundHistory(round.id)"
+        >
+          <Icon name="chevronDown" size="xs" :class="isRoundHistoryCollapsed(round) ? '' : 'rotate-180'" />
+          {{ isRoundHistoryCollapsed(round) ? text('timeline.showHistory', { count: historyMessages(round).length }) : text('timeline.hideHistory') }}
+        </button>
+
+        <ol v-show="!isRoundHistoryCollapsed(round)" class="relative space-y-3 pl-4 before:absolute before:bottom-3 before:left-[1.15rem] before:top-3 before:w-px before:bg-gray-200 dark:before:bg-dark-600 sm:pl-8">
+          <li v-for="(message, messageIndex) in displayHistoryMessages(round)" :key="message.id" class="relative">
             <span
               class="absolute -left-4 top-4 z-10 flex h-5 w-5 -translate-x-1/2 items-center justify-center rounded-full border-2 border-white shadow-sm dark:border-dark-800 sm:-left-8"
               :class="roleMarkerClass(message.role)"
@@ -210,6 +246,7 @@ const timelineOrder = ref<'asc' | 'desc'>('asc')
 const timelineSearch = ref('')
 const jumpRoundID = ref('')
 const expandedMessages = ref(new Set<string>())
+const expandedRoundHistories = ref(new Set<string>())
 const roundElements = new Map<string, HTMLElement>()
 const hasTruncatedPayload = computed(() => props.requestTruncated || props.responseTruncated)
 const normalizedTimelineSearch = computed(() => timelineSearch.value.trim().toLocaleLowerCase())
@@ -234,9 +271,56 @@ function roundTitle(round: ConversationRound) {
   return hasUserMessage ? text('timeline.round', { index: round.index }) : text('timeline.context')
 }
 
-function displayMessages(round: ConversationRound) {
+function roundFinalResponse(round: ConversationRound) {
+  return [...round.messages].reverse().find((message) => (
+    message.role === 'assistant'
+    && message.source === 'response'
+    && finalResponseParts(message).length > 0
+  ))
+}
+
+function visibleFinalResponse(round: ConversationRound) {
+  const message = roundFinalResponse(round)
+  return message && matchesMessage(message) ? message : undefined
+}
+
+function finalResponseParts(message: ConversationMessage) {
+  return message.parts.filter((part) => part.label !== 'reasoning' && part.text.trim())
+}
+
+function historyMessages(round: ConversationRound) {
   const messages = hasTimelineSearch.value ? round.messages.filter(matchesMessage) : round.messages
+  const finalMessage = roundFinalResponse(round)
+  return messages.filter((message) => message.id !== finalMessage?.id)
+}
+
+function displayHistoryMessages(round: ConversationRound) {
+  const messages = historyMessages(round)
   return timelineOrder.value === 'desc' ? [...messages].reverse() : messages
+}
+
+function roundMessageCount(round: ConversationRound) {
+  return hasTimelineSearch.value
+    ? historyMessages(round).length + Number(Boolean(visibleFinalResponse(round)))
+    : round.messages.length
+}
+
+function shouldCollapseRoundHistory(round: ConversationRound) {
+  return !hasTimelineSearch.value && Boolean(roundFinalResponse(round)) && historyMessages(round).length > 6
+}
+
+function isRoundHistoryCollapsed(round: ConversationRound) {
+  return shouldCollapseRoundHistory(round) && !expandedRoundHistories.value.has(round.id)
+}
+
+function toggleRoundHistory(roundID: string) {
+  const next = new Set(expandedRoundHistories.value)
+  if (next.has(roundID)) {
+    next.delete(roundID)
+  } else {
+    next.add(roundID)
+  }
+  expandedRoundHistories.value = next
 }
 
 function setRoundElement(roundID: string, element: unknown) {

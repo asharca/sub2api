@@ -60,7 +60,7 @@ func TestConversationLogHandlerListMineForcesCurrentUser(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodGet, "/conversation-logs?user_id=999&api_key_id=9", nil)
+	c.Request = httptest.NewRequest(http.MethodGet, "/conversation-logs?user_id=999&api_key_id=9&upstream_model_mismatch=true", nil)
 	c.Set(string(middleware2.ContextKeyUser), middleware2.AuthSubject{UserID: 42})
 
 	h.ListMine(c)
@@ -73,6 +73,9 @@ func TestConversationLogHandlerListMineForcesCurrentUser(t *testing.T) {
 	}
 	if repo.listFilters.APIKeyID != 9 {
 		t.Fatalf("expected api_key_id filter preserved, got %d", repo.listFilters.APIKeyID)
+	}
+	if repo.listFilters.UpstreamModelMismatch == nil || !*repo.listFilters.UpstreamModelMismatch {
+		t.Fatalf("expected upstream model mismatch filter preserved, got %#v", repo.listFilters.UpstreamModelMismatch)
 	}
 
 	var body struct {

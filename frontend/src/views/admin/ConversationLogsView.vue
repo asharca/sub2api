@@ -71,9 +71,10 @@
             </template>
           </UsageFilters>
 
-          <div v-else class="flex flex-col justify-between gap-4 xl:flex-row xl:items-center">
-            <div class="flex flex-1 flex-wrap items-center gap-3">
-              <div class="relative w-full sm:w-80">
+          <div v-else class="flex flex-wrap items-end gap-4">
+            <div class="w-full sm:w-auto sm:min-w-[280px]">
+              <label class="input-label">{{ logText('search') }}</label>
+              <div class="relative">
                 <Icon
                   name="search"
                   size="md"
@@ -82,43 +83,51 @@
                 <input
                   v-model="filters.q"
                   type="text"
-                  :placeholder="isAdminView ? logText('searchPlaceholder') : logText('userSearchPlaceholder')"
+                  :placeholder="logText('userSearchPlaceholder')"
                   class="input pl-10"
                   @input="onSearchInput"
                   @keyup.enter="applyFilters"
                 />
               </div>
+            </div>
 
-              <div v-if="!isAdminView" class="w-full sm:w-52">
-                <Input
-                  v-model="filters.model"
-                  :placeholder="logText('modelPlaceholder')"
-                  @enter="applyFilters"
-                />
-              </div>
+            <div class="w-full sm:w-auto sm:min-w-[220px]">
+              <label class="input-label">{{ logText('apiKey') }}</label>
+              <Select v-model="filters.api_key_id" :options="userApiKeyOptions" searchable @change="applyFilters" />
+            </div>
 
-              <Select
-                v-model="filters.platform"
-                :options="platformOptions"
-                class="w-full sm:w-44"
-                @change="applyFilters"
-              />
+            <div class="w-full sm:w-auto sm:min-w-[220px]">
+              <label class="input-label">{{ logText('model') }}</label>
+              <Select v-model="filters.model" :options="userModelOptions" searchable @change="applyFilters" />
+            </div>
 
-              <Select
-                v-if="!isAdminView"
-                v-model="filters.request_type"
-                :options="requestTypeOptions"
-                class="w-full sm:w-44"
-                @change="applyFilters"
-              />
+            <div class="w-full sm:w-auto sm:min-w-[200px]">
+              <label class="input-label">{{ logText('group') }}</label>
+              <Select v-model="filters.group_id" :options="userGroupOptions" searchable @change="applyFilters" />
+            </div>
 
-              <Select
-                v-model="filters.stream"
-                :options="streamOptions"
-                class="w-full sm:w-40"
-                @change="applyFilters"
-              />
+            <div class="w-full sm:w-auto sm:min-w-[180px]">
+              <label class="input-label">{{ logText('platform') }}</label>
+              <Select v-model="filters.platform" :options="platformOptions" @change="applyFilters" />
+            </div>
 
+            <div class="w-full sm:w-auto sm:min-w-[180px]">
+              <label class="input-label">{{ logText('requestType') }}</label>
+              <Select v-model="filters.request_type" :options="requestTypeOptions" @change="applyFilters" />
+            </div>
+
+            <div class="w-full sm:w-auto sm:min-w-[220px]">
+              <label class="input-label">{{ t('admin.usage.upstreamModelAudit') }}</label>
+              <Select v-model="filters.upstream_model_mismatch" :options="upstreamModelMismatchOptions" @change="applyFilters" />
+            </div>
+
+            <div class="w-full sm:w-auto sm:min-w-[180px]">
+              <label class="input-label">{{ logText('mode') }}</label>
+              <Select v-model="filters.stream" :options="streamOptions" @change="applyFilters" />
+            </div>
+
+            <div class="w-full sm:w-auto sm:min-w-[220px]">
+              <label class="input-label">{{ logText('time') }}</label>
               <DateRangePicker
                 v-model:start-date="startDate"
                 v-model:end-date="endDate"
@@ -126,7 +135,7 @@
               />
             </div>
 
-            <div class="flex flex-shrink-0 items-center justify-end gap-3">
+            <div class="ml-auto flex flex-wrap items-center gap-3">
               <button
                 type="button"
                 class="btn btn-secondary"
@@ -172,7 +181,7 @@
           :default-sort-key="sortBy"
           :default-sort-order="sortOrder"
           row-key="id"
-          sort-storage-key="admin-conversation-logs-sort"
+          :sort-storage-key="isAdminView ? 'admin-conversation-logs-sort' : 'conversation-logs-sort'"
           :estimate-row-height="76"
           @sort="handleSort"
         >
@@ -403,7 +412,6 @@ import DataTable from '@/components/common/DataTable.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import DateRangePicker from '@/components/common/DateRangePicker.vue'
-import Input from '@/components/common/Input.vue'
 import Select from '@/components/common/Select.vue'
 import Icon from '@/components/icons/Icon.vue'
 import ConversationTimeline from '@/components/admin/ConversationTimeline.vue'
@@ -413,12 +421,13 @@ import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
 import { adminConversationLogsAPI } from '@/api/admin/conversationLogs'
 import { conversationLogsAPI } from '@/api/conversationLogs'
 import { streamConversationLogs } from '@/api/conversationLogStream'
+import { adminAPI, keysAPI, usageAPI, userGroupsAPI } from '@/api'
 import type { ConversationLog, ConversationLogQueryParams } from '@/api/admin/conversationLogs'
 import { conversationLogSeed } from '@/utils/conversationLogSeed'
 import { parsePayload } from '@/utils/conversationPayload'
 import { buildConversationPreview, type ConversationPreview } from '@/utils/conversationPreview'
 import type { Column } from '@/components/common/types'
-import type { UsageRequestType } from '@/types'
+import type { ApiKey, Group, UsageRequestType } from '@/types'
 
 type SortOrder = 'asc' | 'desc'
 
@@ -454,6 +463,9 @@ const detailVisible = ref(false)
 const selectedLog = ref<ConversationLog | null>(null)
 const selectedPreview = computed(() => buildConversationPreview(selectedLog.value?.request_body || '', ''))
 const liveStreamEnabled = ref(false)
+const userApiKeys = ref<ApiKey[]>([])
+const userGroups = ref<Group[]>([])
+const modelNames = ref<string[]>([])
 const sortBy = ref('created_at')
 const sortOrder = ref<SortOrder>('desc')
 const pagination = reactive({
@@ -488,9 +500,25 @@ const logPreviews = computed(() => new Map(
 ))
 
 const modelOptions = computed(() => Array.from(new Set([
+  ...modelNames.value,
   ...logs.value.flatMap((row) => [row.model, row.requested_model, row.upstream_model]),
   filters.model || ''
 ].filter(Boolean))).sort())
+
+const userApiKeyOptions = computed(() => [
+  { value: null, label: t('usage.allApiKeys') },
+  ...userApiKeys.value.map((key) => ({ value: key.id, label: key.name || `#${key.id}` }))
+])
+
+const userGroupOptions = computed(() => [
+  { value: null, label: t('admin.usage.allGroups') },
+  ...userGroups.value.map((group) => ({ value: group.id, label: group.name }))
+])
+
+const userModelOptions = computed(() => [
+  { value: null, label: t('admin.usage.allModels') },
+  ...modelOptions.value.map((model) => ({ value: model, label: model }))
+])
 
 let abortController: AbortController | null = null
 let searchTimer: number | null = null
@@ -540,6 +568,42 @@ const streamOptions = computed(() => [
   { value: false, label: logText('nonStreamOnly') }
 ])
 
+const upstreamModelMismatchOptions = computed(() => [
+  { value: null, label: t('admin.usage.allUpstreamModelAudit') },
+  { value: true, label: t('admin.usage.upstreamModelMismatchOnly') },
+  { value: false, label: t('admin.usage.upstreamModelMatchedOnly') }
+])
+
+let modelOptionsRequest = 0
+
+async function loadModelOptions() {
+  if (isSeedPreview.value) return
+  const request = ++modelOptionsRequest
+  const params = {
+    start_date: startDate.value,
+    end_date: endDate.value,
+    api_key_id: filters.api_key_id,
+    group_id: filters.group_id,
+    request_type: filters.request_type || undefined,
+    stream: filters.request_type ? undefined : filters.stream === null ? undefined : filters.stream
+  }
+  try {
+    const response = isAdminView.value
+      ? await adminAPI.dashboard.getModelStats({
+        ...params,
+        user_id: filters.user_id,
+        account_id: filters.account_id,
+        upstream_model_mismatch: filters.upstream_model_mismatch === null ? undefined : filters.upstream_model_mismatch
+      })
+      : await usageAPI.getDashboardModels(params)
+    if (request === modelOptionsRequest) {
+      modelNames.value = Array.from(new Set(response.models.map((item) => item.model).filter(Boolean))).sort()
+    }
+  } catch {
+    // Preserve the last complete list if model statistics are temporarily unavailable.
+  }
+}
+
 async function loadLogs() {
   if (isSeedPreview.value) {
     const seedLogs = filterSeedLogs()
@@ -571,6 +635,20 @@ async function loadLogs() {
       loading.value = false
     }
     if (abortController === controller) abortController = null
+  }
+}
+
+async function loadUserFilterOptions() {
+  if (isAdminView.value || isSeedPreview.value) return
+  try {
+    const [keys, groups] = await Promise.all([
+      keysAPI.list(1, 100),
+      userGroupsAPI.getAvailable()
+    ])
+    userApiKeys.value = keys.items
+    userGroups.value = groups
+  } catch {
+    // The remaining filters still work when option metadata is unavailable.
   }
 }
 
@@ -702,6 +780,7 @@ function onSearchInput() {
 function applyFilters() {
   pagination.page = 1
   loadLogs()
+  void loadModelOptions()
   restartLiveStream()
 }
 
@@ -722,6 +801,7 @@ function resetFilters() {
   sortBy.value = 'created_at'
   sortOrder.value = 'desc'
   loadLogs()
+  void loadModelOptions()
   restartLiveStream()
 }
 
@@ -1063,7 +1143,9 @@ const PayloadPanel = defineComponent({
 })
 
 onMounted(() => {
+  void loadUserFilterOptions()
   loadLogs()
+  void loadModelOptions()
 })
 
 onUnmounted(() => {
