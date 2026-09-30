@@ -325,6 +325,20 @@ func TestOpenAIConfiguredCodexModelIDsForGroup_AppliesGroupAllowedModels(t *test
 	require.Greater(t, len(unrestricted), 3)
 }
 
+func TestRestrictedPassthroughCatalogIgnoresStaleMapping(t *testing.T) {
+	group := &Group{ID: 51, Platform: PlatformOpenAI}
+	accounts := []Account{{
+		ID: 1, Platform: PlatformOpenAI,
+		Extra:         map[string]any{"openai_passthrough": true},
+		Credentials:   map[string]any{"model_mapping": map[string]any{"stale-alias": "gpt-5.4"}},
+		AccountGroups: []AccountGroup{{GroupID: group.ID, AllowedModels: []string{"gpt-6.1-sol"}}},
+	}}
+	repo := &modelsListAccountRepoStub{byGroup: map[int64][]Account{group.ID: accounts}}
+	svc := &GatewayService{accountRepo: repo}
+	require.Equal(t, []string{"gpt-6.1-sol"}, svc.GetAvailableModels(context.Background(), &group.ID, PlatformOpenAI))
+	require.Equal(t, []string{"gpt-6.1-sol"}, openAIConfiguredCodexModelIDsForGroup(accounts, group))
+}
+
 func TestProjectAccountModelsBody_FiltersUnmappedAccountByGroup(t *testing.T) {
 	group := &Group{ID: 60, Platform: PlatformOpenAI}
 	account := &Account{

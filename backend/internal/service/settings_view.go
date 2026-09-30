@@ -175,6 +175,7 @@ type SystemSettings struct {
 	CyberSessionBlockEnabled          bool
 	CyberSessionBlockTTLSeconds       int
 	CyberSessionIdentityStrictEnabled bool
+	CyberPolicyUserAllowlist          string
 	AffiliateEnabled                  bool
 	AffiliateRebateRate               float64
 	AffiliateRebateFreezeHours        int

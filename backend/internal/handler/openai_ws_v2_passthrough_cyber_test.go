@@ -20,6 +20,7 @@ import (
 )
 
 type openAIWSPassthroughHandlerHarness struct {
+	handler        *OpenAIGatewayHandler
 	clientConn     *coderws.Conn
 	handlerDone    <-chan struct{}
 	wsURL          string
@@ -28,11 +29,11 @@ type openAIWSPassthroughHandlerHarness struct {
 	apiKey         *service.APIKey
 }
 
-func newOpenAIWSPassthroughHandlerHarness(t *testing.T, upstreamURL string) *openAIWSPassthroughHandlerHarness {
-	return newOpenAIWSPassthroughHandlerHarnessWithOptions(t, upstreamURL, http.Header{"Session_id": []string{"ws-test-session"}}, nil)
+func newOpenAIWSPassthroughHandlerHarness(t *testing.T, upstreamURL string, settings ...map[string]string) *openAIWSPassthroughHandlerHarness {
+	return newOpenAIWSPassthroughHandlerHarnessWithOptions(t, upstreamURL, http.Header{"Session_id": []string{"ws-test-session"}}, settings...)
 }
 
-func newOpenAIWSPassthroughHandlerHarnessWithOptions(t *testing.T, upstreamURL string, clientHeaders http.Header, extraSettings map[string]string) *openAIWSPassthroughHandlerHarness {
+func newOpenAIWSPassthroughHandlerHarnessWithOptions(t *testing.T, upstreamURL string, clientHeaders http.Header, extraSettings ...map[string]string) *openAIWSPassthroughHandlerHarness {
 	t.Helper()
 	gatewayCache := testutil.NewRedisGatewayCache(t)
 
@@ -41,8 +42,10 @@ func newOpenAIWSPassthroughHandlerHarnessWithOptions(t *testing.T, upstreamURL s
 		service.SettingKeyCyberSessionBlockEnabled:    "true",
 		service.SettingKeyCyberSessionBlockTTLSeconds: "60",
 	}
-	for key, value := range extraSettings {
-		settings[key] = value
+	for _, overrides := range extraSettings {
+		for key, value := range overrides {
+			settings[key] = value
+		}
 	}
 	settingRepo := &contentModerationHandlerSettingRepo{values: settings}
 	moderationRepo := &contentModerationHandlerTestRepo{}
@@ -101,6 +104,7 @@ func newOpenAIWSPassthroughHandlerHarnessWithOptions(t *testing.T, upstreamURL s
 
 	apiKey := &service.APIKey{
 		ID:      1851,
+		UserID:  1751,
 		Name:    "ws-cyber-key",
 		Key:     "sk-handler-cyber-test",
 		GroupID: &groupID,
@@ -128,6 +132,7 @@ func newOpenAIWSPassthroughHandlerHarnessWithOptions(t *testing.T, upstreamURL s
 	t.Cleanup(func() { _ = clientConn.CloseNow() })
 
 	return &openAIWSPassthroughHandlerHarness{
+		handler:        h,
 		clientConn:     clientConn,
 		handlerDone:    handlerDone,
 		wsURL:          wsURL,
@@ -451,4 +456,47 @@ func TestOpenAIResponsesWebSocketV2InheritsFirstBodyIdentityForLaterCyberHit(t *
 		t.Fatal("blocked reconnect handler did not exit")
 	}
 	require.Equal(t, int32(1), upstreamConnections.Load())
+}
+
+func TestOpenAIResponsesWebSocketV2AllowlistBypassesStrictIdentity(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := coderws.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer func() { _ = conn.CloseNow() }()
+		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+		defer cancel()
+		for _, responseID := range []string{"resp_trusted_1", "resp_trusted_2"} {
+			if _, _, err := conn.Read(ctx); err != nil {
+				return
+			}
+			response := `{"type":"response.completed","response":{"id":"` + responseID + `","model":"gpt-5.1","usage":{"input_tokens":1,"output_tokens":1}}}`
+			if err := conn.Write(ctx, coderws.MessageText, []byte(response)); err != nil {
+				return
+			}
+		}
+		_, _, _ = conn.Read(ctx)
+	}))
+	defer upstream.Close()
+	harness := newOpenAIWSPassthroughHandlerHarnessWithOptions(t, upstream.URL, nil, map[string]string{
+		service.SettingKeyCyberSessionIdentityStrictEnabled: "true",
+		service.SettingKeyCyberPolicyUserAllowlist:          "1751",
+	})
+	payload := []byte(`{"type":"response.create","model":"gpt-5.1","input":"no session identity"}`)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	for _, responseID := range []string{"resp_trusted_1", "resp_trusted_2"} {
+		require.NoError(t, harness.clientConn.Write(ctx, coderws.MessageText, payload))
+		_, event, err := harness.clientConn.Read(ctx)
+		require.NoError(t, err)
+		require.Equal(t, responseID, gjson.GetBytes(event, "response.id").String())
+	}
+	_ = harness.clientConn.CloseNow()
+	select {
+	case <-harness.handlerDone:
+	case <-ctx.Done():
+		t.Fatal("trusted websocket handler did not exit")
+	}
 }

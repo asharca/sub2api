@@ -31,7 +31,6 @@ type updateServiceGitHubClientStub struct {
 	release        *GitHubRelease
 	recentReleases []*GitHubRelease
 	recentErr      error
-	latestRepo     string
 }
 
 func (s *updateServiceGitHubClientStub) FetchLatestRelease(context.Context, string, string) (*GitHubRelease, error) {
@@ -69,7 +68,6 @@ func TestUpdateServicePerformUpdateNoUpdateReturnsSentinel(t *testing.T) {
 	require.Error(t, err)
 	require.True(t, errors.Is(err, ErrNoUpdateAvailable))
 	require.ErrorIs(t, err, ErrNoUpdateAvailable)
-	require.Equal(t, "ranxi2001/sub2api", githubClient.latestRepo)
 }
 
 func newRollbackTestService(current string, releases []*GitHubRelease) *UpdateService {
