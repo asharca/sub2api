@@ -415,7 +415,6 @@ describe('UseKeyModal', () => {
     expect(configToml).not.toContain('image_generation')
     expect(configToml).not.toContain('supports_websockets')
     expect(configToml).not.toContain('responses_websockets_v2')
-    expect(configToml).toContain('[features]\ngoals = true')
     expect(configToml).not.toContain('model_reasoning_effort = "xhigh"')
     expect(codeBlocks).toContain('{\n  "OPENAI_API_KEY": "sk-test"\n}')
     expect(wrapper.text()).toContain('auth.json')
@@ -557,7 +556,6 @@ describe('UseKeyModal', () => {
     expect(configToml).not.toContain('env_key')
     expect(configToml).not.toContain('image_generation')
     expect(configToml).toContain('supports_websockets = true')
-    expect(configToml).toContain('[features]\nresponses_websockets_v2 = true\ngoals = true')
     expect(codeBlocks).toContain('{\n  "OPENAI_API_KEY": "sk-test"\n}')
     expect(wrapper.text()).toContain('auth.json')
   })
@@ -605,7 +603,6 @@ describe('UseKeyModal', () => {
     expect(configToml).not.toContain('env_key')
     expect(configToml).not.toContain('image_generation')
     expect(configToml).toContain('supports_websockets = true')
-    expect(configToml).toContain('[features]\nresponses_websockets_v2 = true\ngoals = true')
     expect(codeBlocks).not.toContain('{\n  "OPENAI_API_KEY": "sk-test"\n}')
     expect(wrapper.text()).not.toContain('auth.json')
   })
@@ -858,6 +855,7 @@ describe('UseKeyModal', () => {
       .find((content) => content.includes('[model_providers.sub2api]'))
     expect(unixConfig).toContain('[model_providers.sub2api]\nname = "Sub2API Composite"\nbase_url = "https://example.com/v1"\nmodel_catalog_url = "https://example.com/v1/models"')
     expect(unixConfig).not.toContain('model_catalog_json')
+    expect(unixConfig).toContain('api_key_model_discovery = true')
     expect(unixConfig).toContain('env_key = "SUB2API_API_KEY"')
     expect(fetchMock).not.toHaveBeenCalled()
 
@@ -883,6 +881,7 @@ describe('UseKeyModal', () => {
     expect(loadedUnixConfig).not.toContain('model = "gpt-5.5"')
     expect(loadedUnixConfig).toContain('model_catalog_json = "~/.codex/codex-models.json"')
     expect(loadedUnixConfig).not.toContain('model_catalog_url')
+    expect(loadedUnixConfig).not.toContain('api_key_model_discovery')
 
     const downloadButton = wrapper.findAll('button').find((button) =>
       button.text().includes('keys.useKeyModal.codexModelCatalog.download')
