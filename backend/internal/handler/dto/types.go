@@ -74,18 +74,19 @@ type APIKey struct {
 	CurrentConcurrency int `json:"current_concurrency"`
 
 	// Rate limit fields
-	RateLimit5h   float64    `json:"rate_limit_5h"`
-	RateLimit1d   float64    `json:"rate_limit_1d"`
-	RateLimit7d   float64    `json:"rate_limit_7d"`
-	Usage5h       float64    `json:"usage_5h"`
-	Usage1d       float64    `json:"usage_1d"`
-	Usage7d       float64    `json:"usage_7d"`
-	Window5hStart *time.Time `json:"window_5h_start"`
-	Window1dStart *time.Time `json:"window_1d_start"`
-	Window7dStart *time.Time `json:"window_7d_start"`
-	Reset5hAt     *time.Time `json:"reset_5h_at,omitempty"`
-	Reset1dAt     *time.Time `json:"reset_1d_at,omitempty"`
-	Reset7dAt     *time.Time `json:"reset_7d_at,omitempty"`
+	ConcurrencyLimit int        `json:"concurrency_limit"`
+	RateLimit5h      float64    `json:"rate_limit_5h"`
+	RateLimit1d      float64    `json:"rate_limit_1d"`
+	RateLimit7d      float64    `json:"rate_limit_7d"`
+	Usage5h          float64    `json:"usage_5h"`
+	Usage1d          float64    `json:"usage_1d"`
+	Usage7d          float64    `json:"usage_7d"`
+	Window5hStart    *time.Time `json:"window_5h_start"`
+	Window1dStart    *time.Time `json:"window_1d_start"`
+	Window7dStart    *time.Time `json:"window_7d_start"`
+	Reset5hAt        *time.Time `json:"reset_5h_at,omitempty"`
+	Reset1dAt        *time.Time `json:"reset_1d_at,omitempty"`
+	Reset7dAt        *time.Time `json:"reset_7d_at,omitempty"`
 
 	User  *User  `json:"user,omitempty"`
 	Group *Group `json:"group,omitempty"`
@@ -216,6 +217,7 @@ type Account struct {
 	// Credentials 经 RedactCredentials 处理后只含非敏感子键；敏感 token / api_key / 私钥
 	// 的存在性通过 CredentialsStatus（has_<key>）暴露，原始值不返回前端。
 	Credentials             map[string]any                    `json:"credentials"`
+	ExcelBPSCredentialState *service.ExcelBPSCredentialState  `json:"excel_bps_credential_state,omitempty"`
 	CredentialsStatus       map[string]bool                   `json:"credentials_status,omitempty"`
 	Extra                   map[string]any                    `json:"extra"`
 	OllamaCloudUsage        *service.OllamaCloudUsageState    `json:"ollama_cloud_usage,omitempty"`
@@ -260,7 +262,7 @@ type Account struct {
 	MaxSessions           *int `json:"max_sessions,omitempty"`
 	SessionIdleTimeoutMin *int `json:"session_idle_timeout_minutes,omitempty"`
 
-	// RPM 限制（仅 Anthropic OAuth/SetupToken 账号有效）
+	// RPM 限制（Anthropic OAuth/SetupToken 与 OpenAI OAuth 账号有效）
 	// 从 extra 字段提取，方便前端显示和编辑
 	BaseRPM          *int    `json:"base_rpm,omitempty"`
 	RPMStrategy      *string `json:"rpm_strategy,omitempty"`
@@ -342,12 +344,13 @@ type AccountListItem struct {
 	Platform string  `json:"platform"`
 	Type     string  `json:"type"`
 
-	Credentials       map[string]any                    `json:"credentials,omitempty"`
-	CredentialsStatus map[string]bool                   `json:"credentials_status,omitempty"`
-	Extra             map[string]any                    `json:"extra,omitempty"`
-	OllamaCloudUsage  *service.OllamaCloudUsageState    `json:"ollama_cloud_usage,omitempty"`
-	CodexTurnTickets  []service.OpenAICodexTicketStatus `json:"codex_turn_tickets,omitempty"`
-	OpenCodeGoUsage   *service.OpenCodeGoUsageState     `json:"opencode_go_usage,omitempty"`
+	Credentials             map[string]any                    `json:"credentials,omitempty"`
+	ExcelBPSCredentialState *service.ExcelBPSCredentialState  `json:"excel_bps_credential_state,omitempty"`
+	CredentialsStatus       map[string]bool                   `json:"credentials_status,omitempty"`
+	Extra                   map[string]any                    `json:"extra,omitempty"`
+	OllamaCloudUsage        *service.OllamaCloudUsageState    `json:"ollama_cloud_usage,omitempty"`
+	CodexTurnTickets        []service.OpenAICodexTicketStatus `json:"codex_turn_tickets,omitempty"`
+	OpenCodeGoUsage         *service.OpenCodeGoUsageState     `json:"opencode_go_usage,omitempty"`
 
 	ProxyID                 *int64     `json:"proxy_id"`
 	ProxyFallbackOriginID   *int64     `json:"proxy_fallback_origin_id"`
@@ -442,16 +445,17 @@ type AccountGroup struct {
 }
 
 type Proxy struct {
-	ID        int64     `json:"id"`
-	Name      string    `json:"name"`
-	Protocol  string    `json:"protocol"`
-	Host      string    `json:"host"`
-	Port      int       `json:"port"`
-	Username  string    `json:"username"`
-	Password  string    `json:"-"`
-	Status    string    `json:"status"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID           int64     `json:"id"`
+	Name         string    `json:"name"`
+	Protocol     string    `json:"protocol"`
+	Host         string    `json:"host"`
+	Port         int       `json:"port"`
+	MihomoNodeID string    `json:"mihomo_node_id,omitempty"`
+	Username     string    `json:"username"`
+	Password     string    `json:"-"`
+	Status       string    `json:"status"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
 
 	ExpiresAt      *time.Time `json:"expires_at"`
 	FallbackMode   string     `json:"fallback_mode"`

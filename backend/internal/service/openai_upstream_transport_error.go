@@ -115,7 +115,10 @@ func isClientCanceledTransportError(ctx context.Context, err error) bool {
 //
 // passthrough tags the Ops error event for the OpenAI passthrough forward path.
 func (s *OpenAIGatewayService) handleOpenAIUpstreamTransportError(ctx context.Context, c *gin.Context, account *Account, err error, passthrough bool) error {
-	if IsOpenAITurnAdmissionError(err) {
+	if routeErr, ok := s.astraRouteFailover(ctx, account, err).(*UpstreamFailoverError); ok {
+		return routeErr
+	}
+	if IsOpenAITurnAdmissionError(err) || IsOpenAIRPMError(err) {
 		return err
 	}
 	if errors.Is(err, ErrCodexTicketResponseRejected) {

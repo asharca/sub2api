@@ -12,6 +12,10 @@ import (
 func TestDropPlatformCheckConstraintsMigration(t *testing.T) {
 	content, err := FS.ReadFile("242_drop_platform_check_constraints.sql")
 	require.NoError(t, err)
+	productionContent, err := FS.ReadFile("270_drop_platform_check_constraints.sql")
+	require.NoError(t, err)
+	// Both filenames are deployed history; replaying the identical drops is safe.
+	require.Equal(t, string(content), string(productionContent))
 
 	sql := strings.Join(strings.Fields(string(content)), " ")
 	require.Contains(t, sql,

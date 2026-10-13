@@ -10,6 +10,7 @@ import (
 )
 
 type bulkOpenAISettings struct {
+	requestTimezone         bool
 	excelBPS                bool
 	longContextBilling      bool
 	endpointCapabilities    bool
@@ -19,13 +20,19 @@ type bulkOpenAISettings struct {
 }
 
 func (s bulkOpenAISettings) any() bool {
-	return s.excelBPS || s.longContextBilling || s.endpointCapabilities || s.responsesMode
+	return s.requestTimezone || s.excelBPS || s.longContextBilling || s.endpointCapabilities || s.responsesMode
 }
 
 func normalizeBulkOpenAISettings(input *BulkUpdateAccountsInput) (bulkOpenAISettings, error) {
 	var settings bulkOpenAISettings
 	if input == nil {
 		return settings, nil
+	}
+	if _, exists := input.Extra[openAIRequestTimezoneExtraKey]; exists {
+		settings.requestTimezone = true
+		if err := ValidateOpenAIRequestTimezoneExtra(PlatformOpenAI, input.Extra); err != nil {
+			return settings, err
+		}
 	}
 	var err error
 	settings.excelBPS, err = normalizeBulkExcelBPSExtra(input.Extra)
@@ -80,7 +87,13 @@ func normalizeBulkOpenAISettings(input *BulkUpdateAccountsInput) (bulkOpenAISett
 // A nil model scope removes the key (all models); an empty list selects no models.
 func normalizeBulkExcelBPSExtra(extra map[string]any) (bool, error) {
 	changed := false
-	for _, key := range []string{"openai_excel_bps", ExcelBPSIgnoreImagesKey, ExcelBPSIgnoreEncryptedContentKey, "openai_excel_bps_cache_creation_as_input", "openai_excel_bps_auto_disable_on_403", ExcelBPSAutoMoveOn403Key, "openai_excel_bps_mihomo"} {
+	if _, exists := extra[ExcelBPS403RecoveryIntervalMinutesKey]; exists {
+		changed = true
+		if err := validateExcelBPS403RecoveryExtra(extra); err != nil {
+			return true, err
+		}
+	}
+	for _, key := range []string{"openai_excel_bps", ExcelBPSIgnoreEncryptedContentKey, "openai_excel_bps_cache_creation_as_input", "openai_excel_bps_auto_disable_on_403", ExcelBPSAutoRecoverOn403Key, ExcelBPSAutoMoveOn403Key, "openai_excel_bps_mihomo"} {
 		if raw, exists := extra[key]; exists {
 			changed = true
 			if _, ok := raw.(bool); !ok {
@@ -130,8 +143,8 @@ func normalizeBulkExcelBPSExtra(extra map[string]any) (bool, error) {
 			extra["openai_excel_bps_mihomo"] = false
 		}
 		extra["openai_excel_bps_cache_creation_as_input"] = false
-		if _, exists := extra[ExcelBPSIgnoreImagesKey]; exists {
-			extra[ExcelBPSIgnoreImagesKey] = false
+		if _, exists := extra[ExcelBPSAutoRecoverOn403Key]; exists {
+			extra[ExcelBPSAutoRecoverOn403Key] = false
 		}
 		if _, exists := extra[ExcelBPSIgnoreEncryptedContentKey]; exists {
 			extra[ExcelBPSIgnoreEncryptedContentKey] = false
@@ -242,6 +255,11 @@ func validateBulkOpenAISettingsTargets(
 			return 0, invalidBulkOpenAITarget(accountID, "account does not exist")
 		}
 
+		if settings.requestTimezone {
+			if err := ValidateOpenAIRequestTimezoneExtra(account.Platform, input.Extra); err != nil {
+				return 0, err
+			}
+		}
 		if settings.excelBPS && (account.Platform != PlatformOpenAI || account.Type != AccountTypeOAuth ||
 			account.IsShadow() || account.IsOpenAIAgentIdentity() || account.IsOpenAIPersonalAccessToken()) {
 			return 0, invalidBulkOpenAITarget(accountID, "Excel / BPS requires a regular ChatGPT OAuth account")

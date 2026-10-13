@@ -4,6 +4,20 @@
 
 本 fork 以 `production` 为默认开发和 PR 目标分支，按需引入 [Wei-Shaw/sub2api](https://github.com/Wei-Shaw/sub2api) 的更新。提交前核实仓库与 base 分支，避免把 PR 发到上游 `main`。运维 CLI、监控及生产部署脚本属于 [sub2api-operate](https://github.com/ranxi2001/sub2api-operate)，应用源码改动提交到本仓库。
 
+## Agent 使用建议与披露
+
+**强烈建议使用 Astra 或 Opus 5.5 编写 PR。Fable 系列及其他模型也可以提交。** 这是使用建议，不是模型准入限制。
+
+所有 Issue 和 PR 都必须注明 **Agent 名称、模型名称和推理强度**，无论使用推荐模型、其他模型，还是完全人工编写，方便审核者判断内容的可信度和需要重点核查的部分。仅用 Agent 分析问题、编写测试、撰写或润色正文，也需要披露。
+
+- **Agent 名称与参与范围**：填写实际使用的工具名称，以及参与的问题分析、代码、测试、文档或正文撰写工作。纯人工编写注明“未使用 Agent，参与范围：无”。
+- **模型名称**：填写实际使用的完整模型名称或模型 ID，不能只写工具名或“AI”。纯人工编写填写“不适用”。
+- **推理强度**：填写实际配置值。未手动设置时写“默认（未手动设置）”；工具不提供该设置时写“不适用（工具未提供）”；纯人工编写填写“不适用”。
+- 多个 Agent 或模型参与时，包括子 Agent，逐一列出各自的模型、推理强度和参与范围；后续追加修改时同步更新声明。
+- 模型名称或推理强度无法获取时，明确注明“未知”及原因，不凭输出风格猜测，不把未确认的默认值写成具体档位。
+
+使用推荐模型不能替代验证。贡献者仍需核对实现、依赖、命令和证据，说明实际执行的检查、结果及未验证部分，不得将 Agent 的判断当作已验证的事实。
+
 ## 选择合适的入口
 
 从 [Issue 选择页](https://github.com/ranxi2001/sub2api/issues/new/choose) 选择表单：
@@ -153,7 +167,7 @@ git switch -c fix/describe-the-change project/production
 
 ### 环境与依赖
 
-工具链以当前 checkout 的 [backend/go.mod](backend/go.mod)、[CI](.github/workflows/backend-ci.yml)、[frontend/package.json](frontend/package.json) 和锁文件为准。本指南编写时，后端 CI 使用 Go 1.27.0 与 golangci-lint v2.13；前端 CI 使用 Node.js 20 和 pnpm 9。版本要求变化时一并更新说明，不沿用旧教程中的最低版本。
+工具链以当前 checkout 的 [backend/go.mod](backend/go.mod)、[CI](.github/workflows/backend-ci.yml)、[frontend/package.json](frontend/package.json) 和锁文件为准。本指南编写时，后端 CI 使用 Go 1.27.2 与 golangci-lint v2.14.0；前端 CI 使用 Node.js 20 和 pnpm 9。版本要求变化时一并更新说明，不沿用旧教程中的最低版本。
 
 运行应用需要独立的 PostgreSQL/Redis 测试环境，配置与初始化方式见 [部署说明](deploy/README.md)。部分集成测试通过 testcontainers 启动依赖，需要可用的 Docker；缺少 Docker 或测试环境变量可能导致用例跳过，检查日志中的 skip 信息，不能仅凭退出码声称全部覆盖。
 

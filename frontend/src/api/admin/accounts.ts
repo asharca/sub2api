@@ -26,6 +26,9 @@ import type {
   OpenAICodexPATCreateRequest,
   CheckMixedChannelRequest,
   CheckMixedChannelResponse,
+  NewAPIUpstreamConfig,
+  NewAPIUpstreamConfigRequest,
+  NewAPIUpstreamPreview,
   UpstreamBillingProbeResult,
   UpstreamBillingProbeSettings,
   UpstreamBillingRatesResponse,
@@ -610,6 +613,18 @@ export async function getAvailableModels(id: number): Promise<ClaudeModel[]> {
   return data
 }
 
+export interface AccountTestReasoning {
+  supported_reasoning_levels: string[]
+  default_reasoning_level: string
+}
+
+export async function getModelReasoning(id: number, modelId: string): Promise<AccountTestReasoning> {
+  const { data } = await apiClient.get<AccountTestReasoning>(`/admin/accounts/${id}/models/reasoning`, {
+    params: { model_id: modelId }
+  })
+  return data
+}
+
 export interface SyncUpstreamModelsResult {
   models: string[]
   metadata?: Record<string, UpstreamModelMetadata>
@@ -649,6 +664,7 @@ export interface SyncUpstreamPreviewParams {
   type: string
   base_url?: string
   api_key: string
+  proxy_id?: number
   model_mapping?: Record<string, string>
 }
 
@@ -1028,6 +1044,26 @@ export async function createSparkShadow(parentId: number, payload: SparkShadowCr
   return data
 }
 
+export async function getNewAPIUpstreamConfig(id: number): Promise<NewAPIUpstreamConfig> {
+  const { data } = await apiClient.get<NewAPIUpstreamConfig>(`/admin/accounts/${id}/upstream-billing-probe/config`)
+  return data
+}
+
+export async function previewNewAPIUpstreamConfig(id: number, request: NewAPIUpstreamConfigRequest): Promise<NewAPIUpstreamPreview> {
+  const { data } = await apiClient.post<NewAPIUpstreamPreview>(`/admin/accounts/${id}/upstream-billing-probe/config/preview`, request)
+  return data
+}
+
+export async function saveNewAPIUpstreamConfig(id: number, request: NewAPIUpstreamConfigRequest): Promise<NewAPIUpstreamPreview> {
+  const { data } = await apiClient.put<NewAPIUpstreamPreview>(`/admin/accounts/${id}/upstream-billing-probe/config`, request)
+  return data
+}
+
+export async function deleteNewAPIUpstreamConfig(id: number): Promise<{ account_id: number; configured: false }> {
+  const { data } = await apiClient.delete<{ account_id: number; configured: false }>(`/admin/accounts/${id}/upstream-billing-probe/config`)
+  return data
+}
+
 export async function getUpstreamBillingProbeSettings(): Promise<UpstreamBillingProbeSettings> {
   const { data } = await apiClient.get<UpstreamBillingProbeSettings>('/admin/accounts/upstream-billing-probe/settings')
   return data
@@ -1166,11 +1202,19 @@ export interface CodexHarvestFlowTicket {
 }
 
 export interface CodexHarvestFlowAccount {
+  coverage?: {
+    started_at: string
+    updated_at: string
+    ready_seconds: number
+    missing_seconds: number
+    percent: number | null
+  }
   id: number
   name: string
   status: string
   schedulable: boolean
   skip_harvest?: boolean
+  harvest_selected?: boolean
   in_scope?: boolean
   availability?: string
   recover_at?: string
@@ -1214,7 +1258,18 @@ export interface CodexHarvestFlowEvent {
   detail?: string
 }
 
+export interface CodexHarvestCoverage {
+  started_at?: string
+  updated_at?: string
+  account_count: number
+  average_ready_seconds: number
+  average_missing_seconds: number
+  average_percent: number | null
+  sample_interval_seconds: number
+}
+
 export interface CodexHarvestFlowSnapshot {
+  coverage?: CodexHarvestCoverage
   generated_at: string
   harvest: {
     enabled: boolean
@@ -1394,7 +1449,13 @@ export async function refreshOpenCodeGoUsage(id: number): Promise<OpenCodeGoUsag
   return data
 }
 
+export async function getOpenAIRequestTimezones(): Promise<{ default: string; timezones: string[] }> {
+  const { data } = await apiClient.get<{ default: string; timezones: string[] }>('/admin/accounts/openai-request-timezones')
+  return data
+}
+
 export const accountsAPI = {
+  getOpenAIRequestTimezones,
   list,
   listWithEtag,
   getUpstreamBillingRatesWithEtag,
@@ -1423,6 +1484,7 @@ export const accountsAPI = {
   resetTempUnschedulable,
   setSchedulable,
   getAvailableModels,
+  getModelReasoning,
   syncUpstreamModels,
   syncUpstreamModelsPreview,
   generateAuthUrl,
@@ -1447,6 +1509,10 @@ export const accountsAPI = {
   refreshOpenAIQuota,
   resetOpenAIQuota,
   createSparkShadow,
+  getNewAPIUpstreamConfig,
+  previewNewAPIUpstreamConfig,
+  saveNewAPIUpstreamConfig,
+  deleteNewAPIUpstreamConfig,
   getUpstreamBillingProbeSettings,
   updateUpstreamBillingProbeSettings,
   setUpstreamBillingProbeEnabled,
@@ -1472,7 +1538,7 @@ export const accountsAPI = {
 
 export default accountsAPI
 
-export async function getManagementCapabilities(): Promise<{ web_search_enabled: boolean; account_quota_notify_enabled: boolean }> {
+export async function getManagementCapabilities(): Promise<{ web_search_enabled: boolean; account_quota_notify_enabled: boolean; concurrency_upgrade_enabled?: boolean }> {
   const { data } = await apiClient.get('/admin/accounts/management-capabilities')
   return data
 }

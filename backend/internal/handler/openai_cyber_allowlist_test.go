@@ -16,6 +16,12 @@ import (
 )
 
 func TestCyberAllowlistedUserBypassesExistingBlocksAndContinuesWebSocket(t *testing.T) {
+	t.Run("existing websocket block", func(t *testing.T) { runCyberAllowlistedUserWebSocket(t, true) })
+	t.Run("no new websocket block", func(t *testing.T) { runCyberAllowlistedUserWebSocket(t, false) })
+}
+
+func runCyberAllowlistedUserWebSocket(t *testing.T, existingWSBlock bool) {
+	t.Helper()
 	gin.SetMode(gin.TestMode)
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, err := coderws.Accept(w, r, nil)
@@ -44,9 +50,14 @@ func TestCyberAllowlistedUserBypassesExistingBlocksAndContinuesWebSocket(t *test
 		service.SettingKeyCyberPolicyUserAllowlist: "1751",
 	})
 	payload := []byte(`{"type":"response.create","model":"gpt-5.1","prompt_cache_key":"trusted-session","input":"test"}`)
+	// Exercise HTTP bypass with either the same blocked WS identity or a
+	// separate identity, leaving the WS identity free to test new-block suppression.
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
 	c.Request = httptest.NewRequest(http.MethodPost, "/openai/v1/responses", strings.NewReader(string(payload)))
-	c.Request.Header.Set("Session_id", "ws-test-session")
+	c.Request.Header.Set("session_id", "trusted-http-session")
+	if existingWSBlock {
+		c.Request.Header.Set("session_id", "ws-test-session")
+	}
 	explicitKey := service.CyberSessionExplicitBlockKey(harness.apiKey.ID, c, payload)
 	require.NotEmpty(t, explicitKey)
 	store, ok := harness.gatewayCache.(service.CyberSessionBlockStore)
@@ -65,6 +76,18 @@ func TestCyberAllowlistedUserBypassesExistingBlocksAndContinuesWebSocket(t *test
 		logs := harness.moderationRepo.logSnapshot()
 		return len(logs) == 1 && logs[0].Mode == service.ContentModerationModeCyberLogOnly
 	}, 3*time.Second, 10*time.Millisecond)
+	wsKeyCtx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	wsKeyCtx.Request = httptest.NewRequest(http.MethodPost, "/openai/v1/responses", strings.NewReader(string(payload)))
+	wsKeyCtx.Request.Header.Set("session_id", "ws-test-session")
+	wsBlockKey := service.CyberSessionExplicitBlockKey(harness.apiKey.ID, wsKeyCtx, payload)
+	require.NotEmpty(t, wsBlockKey)
+	matched, err := store.FindCyberSessionBlocked(ctx, []string{wsBlockKey})
+	require.NoError(t, err)
+	if existingWSBlock {
+		require.Equal(t, wsBlockKey, matched, "the trusted websocket must bypass its existing block")
+	} else {
+		require.Empty(t, matched, "the cyber response must not write a new session block")
+	}
 	require.NoError(t, harness.clientConn.Write(ctx, coderws.MessageText, payload))
 	_, event, err = harness.clientConn.Read(ctx)
 	require.NoError(t, err)

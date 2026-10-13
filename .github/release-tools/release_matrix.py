@@ -16,12 +16,19 @@ import yaml
 
 FULL_CONFIG = Path('.goreleaser.yaml')
 SIMPLE_CONFIG = Path('.goreleaser.simple.yaml')
+FEATURE_CONFIG = Path('.goreleaser.feature.yaml')
 VERSION_FILE = Path('backend/cmd/server/VERSION')
 VERSION_RE = re.compile(r'\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?')
 
 
+def feature_release(version):
+    return '-asharca.' in version or '-ashark.' in version
+
+
 def config(simple=False):
-    return yaml.safe_load((SIMPLE_CONFIG if simple else FULL_CONFIG).read_text())
+    version = os.environ.get('RELEASE_VERSION') or VERSION_FILE.read_text().strip()
+    path = FEATURE_CONFIG if feature_release(version) else SIMPLE_CONFIG if simple else FULL_CONFIG
+    return yaml.safe_load(path.read_text())
 
 
 def targets(simple=False):
@@ -67,7 +74,8 @@ def plan(args):
         raise ValueError('invalid VERSION')
     VERSION_FILE.write_text(version + '\n')
     result = {'sha': sha, 'tag': tag, 'version': version,
-              'prerelease': str('-' in version).lower(),
+              'prerelease': str('-' in version and not feature_release(version)).lower(),
+              'feature': str(feature_release(version)).lower(),
               'owner_lower': os.environ.get('GITHUB_REPOSITORY_OWNER', '').lower(),
               'simple': str(args.simple).lower(), 'dry_run': str(args.dry_run).lower(),
               'date': datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
@@ -97,7 +105,7 @@ def generate_config(args):
         data['builds'] = [{'id': 'sub2api', 'skip': True}]
         data['archives'] = []
         extra = [{'glob': 'release-input/sub2api_*.tar.gz'}, {'glob': 'release-input/sub2api_*.zip'}]
-        if args.simple:
+        if args.simple and not feature_release(os.environ.get('RELEASE_VERSION') or VERSION_FILE.read_text().strip()):
             data['checksum'] = {'disable': True}
         else:
             data['release']['extra_files'] = extra

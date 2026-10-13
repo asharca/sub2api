@@ -3,11 +3,13 @@ set -euo pipefail
 : "${RELEASE_VERSION:?}" "${RELEASE_SHA:?}" "${GITHUB_REPOSITORY:?}" "${RUNNER_TEMP:?}"
 owner=${GITHUB_REPOSITORY%%/*}
 registries=("ghcr.io/${owner,,}/sub2api")
-if [[ ${SIMPLE_RELEASE:-false} != true && ${DOCKERHUB_USERNAME:-skip} != skip ]]; then
+feature=false
+if [[ $RELEASE_VERSION == *-asharca.* || $RELEASE_VERSION == *-ashark.* ]]; then feature=true; fi
+if [[ $feature != true && ${SIMPLE_RELEASE:-false} != true && ${DOCKERHUB_USERNAME:-skip} != skip ]]; then
   registries+=("${DOCKERHUB_USERNAME}/sub2api")
 fi
 arches=(amd64 arm64)
-if [[ ${SIMPLE_RELEASE:-false} == true ]]; then arches=(amd64); fi
+if [[ $feature == true || ${SIMPLE_RELEASE:-false} == true ]]; then arches=(amd64); fi
 for arch in "${arches[@]}"; do
   args=(--platform "linux/$arch" --file ".release-context/$arch/Dockerfile"
     --label "org.opencontainers.image.version=$RELEASE_VERSION"
@@ -15,7 +17,7 @@ for arch in "${arches[@]}"; do
     --label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY")
   for registry in "${registries[@]}"; do
     args+=(--tag "$registry:$RELEASE_VERSION-$arch")
-    if [[ ${SIMPLE_RELEASE:-false} == true ]]; then
+    if [[ $feature == true || ${SIMPLE_RELEASE:-false} == true ]]; then
       args+=(--tag "$registry:$RELEASE_VERSION")
       if [[ $RELEASE_VERSION != *-* ]]; then args+=(--tag "$registry:latest"); fi
     fi
@@ -27,7 +29,7 @@ for arch in "${arches[@]}"; do
   fi
   docker buildx build "${args[@]}" ".release-context/$arch"
 done
-if [[ ${DRY_RUN:-false} != true && ${SIMPLE_RELEASE:-false} != true ]]; then
+if [[ $feature != true && ${DRY_RUN:-false} != true && ${SIMPLE_RELEASE:-false} != true ]]; then
   major=${RELEASE_VERSION%%.*}
   minor=${RELEASE_VERSION#*.}; minor=${minor%%.*}
   for registry in "${registries[@]}"; do

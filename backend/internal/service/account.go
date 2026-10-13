@@ -22,6 +22,8 @@ import (
 )
 
 type Account struct {
+	// InitialQualityPlan is internal create-only state, never imported or exported.
+	InitialQualityPlan      *ScheduledTestPlan `json:"-"`
 	ID                      int64
 	Name                    string
 	Notes                   *string
@@ -301,6 +303,19 @@ func (a *Account) IsTypeSafe() bool {
 
 func (a *Account) IsGrokOAuth() bool {
 	return a.IsGrok() && a.Type == AccountTypeOAuth
+}
+
+const grokSkipForbiddenPauseExtraKey = "grok_skip_forbidden_pause"
+
+// SkipGrokForbiddenPause reports the deployed per-account opt-out for pausing
+// a Grok account after an unknown inference 403. A missing or non-boolean value
+// preserves the legacy pause. Explicit entitlement and suspension markers are
+// protected by the caller even when this returns true.
+func (a *Account) SkipGrokForbiddenPause() bool {
+	if a == nil || !a.IsGrok() {
+		return false
+	}
+	return a.getExtraBool(grokSkipForbiddenPauseExtraKey)
 }
 
 // IsKimi / IsZhipu / IsDeepseek 标识国产 OpenAI 兼容供应商账号。
@@ -917,6 +932,26 @@ func resolveRequestedModelInMapping(mapping map[string]string, requestedModel st
 // （isDeepseekServableModel）——未知模型名透传上游只会得到 404/400，并误触发
 // per-(账号,模型) 30 分钟冷却；带 [1m] 上下文后缀的写法先归一化再比对。
 func (a *Account) IsModelSupported(requestedModel string) bool {
+	// Apply the credential boundary before passthrough's model allowlist bypass.
+	if a.IsExcelOAuth() && !a.IsExcelBPSEnabledForModel(requestedModel) {
+		return false
+	}
+	if blocked, _ := a.Extra["astra_model_disabled"].(bool); blocked {
+		if empty, _ := a.Extra["astra_model_empty_mapping"].(bool); empty {
+			return false
+		}
+		if strings.EqualFold(strings.TrimSpace(requestedModel), "gpt-6-astra") || strings.EqualFold(a.GetMappedModel(requestedModel), "gpt-6-astra") {
+			return false
+		}
+		if keys, ok := a.Extra["astra_model_blocked_keys"].([]any); ok {
+			for _, key := range keys {
+				if k, ok := key.(string); ok && (strings.EqualFold(k, requestedModel) || (strings.HasSuffix(k, "*") && strings.HasPrefix(requestedModel, strings.TrimSuffix(k, "*")))) {
+					return false
+				}
+			}
+		}
+	}
+
 	// 透传模式仅替换认证、模型语义完全交由上游决定，因此放行所有模型。
 	// 该短路必须在 model_mapping 判定之前：账号从"白名单模式"切换到透传后，
 	// credentials 里常残留旧的非空 model_mapping，若不在此放行，透传账号会被
@@ -940,6 +975,9 @@ func (a *Account) IsModelSupported(requestedModel string) bool {
 	normalized := normalizeRequestedModelForLookup(a.Platform, requestedModel)
 	if normalized != requestedModel && mappingSupportsRequestedModel(mapping, normalized) {
 		return true
+	}
+	if a.IsOpenAIModelMappingAliases() {
+		return isOpenAIOAuthServableModel(requestedModel)
 	}
 	_, fallback := a.resolveGrokMediaFallbackModel(requestedModel)
 	return fallback
@@ -2142,21 +2180,15 @@ func (a *Account) IsExcelBPSEnabled() bool {
 	if a == nil || a.Platform != PlatformOpenAI || a.Type != AccountTypeOAuth || a.IsShadow() || a.IsOpenAIAgentIdentity() || a.IsOpenAIPersonalAccessToken() {
 		return false
 	}
-	enabled, _ := a.Extra["openai_excel_bps"].(bool)
-	return enabled
-}
-
-const ExcelBPSIgnoreImagesKey = "openai_excel_bps_ignore_images"
-
-// IsExcelBPSIgnoreImagesEnabled opts into text-only forwarding when global BPS
-// image support is disabled. The forwarding path checks that global setting.
-func (a *Account) IsExcelBPSIgnoreImagesEnabled() bool {
-	if !a.IsExcelBPSEnabled() {
+	if strings.EqualFold(strings.TrimSpace(a.GetCredential("plan_type")), "free") {
 		return false
 	}
-	enabled, _ := a.Extra[ExcelBPSIgnoreImagesKey].(bool)
-	return enabled
+	enabled, _ := a.Extra["openai_excel_bps"].(bool)
+	return enabled && a.Extra[ExcelBPSAuthorizationPendingKey] != true
 }
+
+// The requested switch stays on while the worker prepares the independent grant.
+const ExcelBPSAuthorizationPendingKey = "openai_excel_bps_authorization_pending"
 
 const ExcelBPSIgnoreEncryptedContentKey = "openai_excel_bps_ignore_encrypted_content"
 
@@ -2237,6 +2269,17 @@ func (a *Account) IsExcelBPSEnabledForModel(requestedModel string) bool {
 		return false
 	}
 	return a.isExcelBPSUpstreamModelEnabled(a.GetMappedModel(requestedModel))
+}
+
+// IsExcelBPSImagesEnabledForModel routes image generation through BPS only
+// when the image model is listed explicitly. Legacy account-wide routing keeps
+// images on Codex so an upgrade does not silently change the image channel.
+func (a *Account) IsExcelBPSImagesEnabledForModel(requestedModel string) bool {
+	if !a.IsExcelBPSEnabled() || a.isExcelBPSAllModelsEnabled() {
+		return false
+	}
+	model := a.GetMappedModel(requestedModel)
+	return usesCodexDirectImages(model) && excelBPSImagesSupportedModel(model) && a.isExcelBPSUpstreamModelEnabled(model)
 }
 
 func (a *Account) isExcelBPSUpstreamModelEnabled(model string) bool {
@@ -3261,8 +3304,11 @@ func (a *Account) GetBaseRPM() int {
 }
 
 // GetRPMStrategy 获取 RPM 策略
-// "tiered" = 三区模型（默认）, "sticky_exempt" = 粘性豁免
+// "strict" = OpenAI OAuth 硬上限；Anthropic 使用 "tiered" 或 "sticky_exempt"。
 func (a *Account) GetRPMStrategy() string {
+	if a.IsOpenAIOAuth() {
+		return "strict"
+	}
 	if a.Extra == nil {
 		return "tiered"
 	}
@@ -3332,6 +3378,9 @@ func (a *Account) CheckRPMSchedulability(currentRPM int) WindowCostSchedulabilit
 	}
 
 	strategy := a.GetRPMStrategy()
+	if strategy == "strict" {
+		return WindowCostNotSchedulable
+	}
 	if strategy == "sticky_exempt" {
 		return WindowCostStickyOnly // 粘性豁免无红区
 	}
@@ -3447,6 +3496,18 @@ func parseExtraInt(value any) int {
 
 // IsShadow 报告账号是否为影子账号（parent_account_id 非空；当前唯一预设是 spark 维度）。
 func (a *Account) IsShadow() bool { return a != nil && a.ParentAccountID != nil }
+
+// RPMAccountID returns the counter owner for per-minute limits. Credential
+// shadows intentionally share their parent account's upstream quota.
+func (a *Account) RPMAccountID() int64 {
+	if a == nil {
+		return 0
+	}
+	if a.IsOpenAIOAuth() && a.ParentAccountID != nil && *a.ParentAccountID > 0 {
+		return *a.ParentAccountID
+	}
+	return a.ID
+}
 
 // IsCredentialShadow 语义别名，供「凭据消费者跳过影子」处使用（管理/后台 OAuth 路径）。
 func (a *Account) IsCredentialShadow() bool { return a.IsShadow() }

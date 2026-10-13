@@ -163,7 +163,6 @@ func (s *antigravityCompatStreamSession) writePreContentKeepalive(now time.Time)
 		s.preContentKeepaliveSent = true
 	}
 }
-
 func (s *antigravityCompatStreamSession) finish() (*antigravityStreamResult, error) {
 	finalEvents, usage := s.processor.Finish()
 	mergeAntigravityCompatUsage(s.usage, usage)

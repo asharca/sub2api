@@ -221,10 +221,12 @@ type AccountWithConcurrency struct {
 	CurrentConcurrency int                          `json:"current_concurrency"`
 	SchedulerScore     *AccountSchedulerScore       `json:"scheduler_score,omitempty"`
 	SchedulerScores    []AccountSchedulerGroupScore `json:"scheduler_scores,omitempty"`
-	// 以下字段仅对 Anthropic OAuth/SetupToken 账号有效，且仅在启用相应功能时返回
+	// 以下字段仅在对应账号启用运行时容量控制时返回；OpenAI OAuth 仅使用 RPM 字段
 	CurrentWindowCost *float64 `json:"current_window_cost,omitempty"` // 当前窗口费用
 	ActiveSessions    *int     `json:"active_sessions,omitempty"`     // 当前活跃会话数
 	CurrentRPM        *int     `json:"current_rpm,omitempty"`         // 当前分钟 RPM 计数
+	RPMPaused         bool     `json:"rpm_paused,omitempty"`
+	RPMResetAt        *int64   `json:"rpm_reset_at,omitempty"`
 }
 
 // AccountListItemWithConcurrency is the compact account-list envelope used
@@ -238,6 +240,8 @@ type AccountListItemWithConcurrency struct {
 	CurrentWindowCost  *float64                     `json:"current_window_cost,omitempty"`
 	ActiveSessions     *int                         `json:"active_sessions,omitempty"`
 	CurrentRPM         *int                         `json:"current_rpm,omitempty"`
+	RPMPaused          bool                         `json:"rpm_paused,omitempty"`
+	RPMResetAt         *int64                       `json:"rpm_reset_at,omitempty"`
 }
 
 type simpleModeGroupReference struct {
@@ -413,8 +417,8 @@ func (h *AccountHandler) buildAccountResponseWithRuntime(ctx context.Context, ac
 		}
 	}
 
-	if account.IsAnthropicOAuthOrSetupToken() {
-		if h.accountUsageService != nil && account.GetWindowCostLimit() > 0 {
+	if account.SupportsRPMLimit() {
+		if account.IsAnthropicOAuthOrSetupToken() && h.accountUsageService != nil && account.GetWindowCostLimit() > 0 {
 			startTime := account.GetCurrentWindowStartTime()
 			if stats, err := h.accountUsageService.GetAccountWindowStats(ctx, account.ID, startTime); err == nil && stats != nil {
 				cost := stats.StandardCost
@@ -422,7 +426,7 @@ func (h *AccountHandler) buildAccountResponseWithRuntime(ctx context.Context, ac
 			}
 		}
 
-		if h.sessionLimitCache != nil && account.GetMaxSessions() > 0 {
+		if account.IsAnthropicOAuthOrSetupToken() && h.sessionLimitCache != nil && account.GetMaxSessions() > 0 {
 			idleTimeout := time.Duration(account.GetSessionIdleTimeoutMinutes()) * time.Minute
 			idleTimeouts := map[int64]time.Duration{account.ID: idleTimeout}
 			if sessions, err := h.sessionLimitCache.GetActiveSessionCountBatch(ctx, []int64{account.ID}, idleTimeouts); err == nil {
@@ -433,8 +437,17 @@ func (h *AccountHandler) buildAccountResponseWithRuntime(ctx context.Context, ac
 		}
 
 		if h.rpmCache != nil && account.GetBaseRPM() > 0 {
-			if rpm, err := h.rpmCache.GetRPM(ctx, account.ID); err == nil {
+			rpmAccountID := account.ID
+			if account.IsOpenAIOAuth() {
+				rpmAccountID = account.RPMAccountID()
+			}
+			if rpm, err := h.rpmCache.GetRPM(ctx, rpmAccountID); err == nil {
 				item.CurrentRPM = &rpm
+				if account.IsOpenAIOAuth() && rpm >= account.GetBaseRPM() {
+					item.RPMPaused = true
+					resetAt := time.Now().Truncate(time.Minute).Add(time.Minute).Unix()
+					item.RPMResetAt = &resetAt
+				}
 			}
 		}
 	}
@@ -764,23 +777,27 @@ func (h *AccountHandler) List(c *gin.Context) {
 		}
 	}
 
-	// 识别需要查询窗口费用、会话数和 RPM 的账号（Anthropic OAuth/SetupToken 且启用了相应功能）
+	// 识别需要查询窗口费用、会话数和 RPM 的账号；窗口/会话仅属于 Anthropic，RPM 也支持 OpenAI OAuth
 	windowCostAccountIDs := make([]int64, 0)
 	sessionLimitAccountIDs := make([]int64, 0)
 	rpmAccountIDs := make([]int64, 0)
 	sessionIdleTimeouts := make(map[int64]time.Duration) // 各账号的会话空闲超时配置
 	for i := range accounts {
 		acc := &accounts[i]
-		if acc.IsAnthropicOAuthOrSetupToken() {
-			if acc.GetWindowCostLimit() > 0 {
+		if acc.SupportsRPMLimit() {
+			if acc.IsAnthropicOAuthOrSetupToken() && acc.GetWindowCostLimit() > 0 {
 				windowCostAccountIDs = append(windowCostAccountIDs, acc.ID)
 			}
-			if acc.GetMaxSessions() > 0 {
+			if acc.IsAnthropicOAuthOrSetupToken() && acc.GetMaxSessions() > 0 {
 				sessionLimitAccountIDs = append(sessionLimitAccountIDs, acc.ID)
 				sessionIdleTimeouts[acc.ID] = time.Duration(acc.GetSessionIdleTimeoutMinutes()) * time.Minute
 			}
 			if acc.GetBaseRPM() > 0 {
-				rpmAccountIDs = append(rpmAccountIDs, acc.ID)
+				rpmAccountID := acc.ID
+				if acc.IsOpenAIOAuth() {
+					rpmAccountID = acc.RPMAccountID()
+				}
+				rpmAccountIDs = append(rpmAccountIDs, rpmAccountID)
 			}
 		}
 	}
@@ -864,8 +881,17 @@ func (h *AccountHandler) List(c *gin.Context) {
 
 		// 添加 RPM 计数（仅当启用时）
 		if rpmCounts != nil {
-			if rpm, ok := rpmCounts[acc.ID]; ok {
+			rpmAccountID := acc.ID
+			if acc.IsOpenAIOAuth() {
+				rpmAccountID = acc.RPMAccountID()
+			}
+			if rpm, ok := rpmCounts[rpmAccountID]; ok {
 				item.CurrentRPM = &rpm
+				if acc.IsOpenAIOAuth() && acc.GetBaseRPM() > 0 && rpm >= acc.GetBaseRPM() {
+					item.RPMPaused = true
+					resetAt := time.Now().Truncate(time.Minute).Add(time.Minute).Unix()
+					item.RPMResetAt = &resetAt
+				}
 			}
 		}
 
@@ -886,6 +912,8 @@ func (h *AccountHandler) List(c *gin.Context) {
 				CurrentWindowCost:  item.CurrentWindowCost,
 				ActiveSessions:     item.ActiveSessions,
 				CurrentRPM:         item.CurrentRPM,
+				RPMPaused:          item.RPMPaused,
+				RPMResetAt:         item.RPMResetAt,
 			}
 		}
 		etag := buildAccountsListETag(compact, total, page, pageSize, platform, accountType, status, search, true)
@@ -2892,6 +2920,26 @@ func (h *AccountHandler) SetSchedulable(c *gin.Context) {
 	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), account))
 }
 
+// GetModelReasoning returns account-specific reasoning choices for a test model.
+func (h *AccountHandler) GetModelReasoning(c *gin.Context) {
+	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "Invalid account ID")
+		return
+	}
+	modelID := strings.TrimSpace(c.Query("model_id"))
+	if modelID == "" {
+		response.BadRequest(c, "Model ID is required")
+		return
+	}
+	account, err := h.adminService.GetAccount(c.Request.Context(), accountID)
+	if err != nil {
+		response.NotFound(c, "Account not found")
+		return
+	}
+	response.Success(c, h.accountTestService.GetAccountTestReasoning(c.Request.Context(), account, modelID))
+}
+
 // GetAvailableModels handles getting available models for an account
 // GET /api/v1/admin/accounts/:id/models
 func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
@@ -2915,6 +2963,13 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 			if models, fetchErr := h.accountTestService.FetchOpenAIAccountModels(c.Request.Context(), account); fetchErr == nil {
 				response.Success(c, models)
 				return
+			} else if account.IsExcelBPSEnabled() {
+				if service.IsExcelAuthorizationError(fetchErr) {
+					response.ErrorFrom(c, fetchErr)
+					return
+				}
+				response.Error(c, http.StatusBadGateway, "Excel BPS model discovery is unavailable")
+				return
 			}
 		}
 		// OpenAI 自动透传会绕过常规模型改写，测试/模型列表也应回落到默认模型集。
@@ -2931,11 +2986,16 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 
 		// Return mapped models
 		var models []openai.Model
+		if account.IsOpenAIModelMappingAliases() {
+			models = append(models, openai.DefaultModels...)
+		}
 		for requestedModel := range mapping {
 			var found bool
 			for _, dm := range openai.DefaultModels {
 				if dm.ID == requestedModel {
-					models = append(models, dm)
+					if !account.IsOpenAIModelMappingAliases() {
+						models = append(models, dm)
+					}
 					found = true
 					break
 				}
@@ -3172,7 +3232,7 @@ func (h *AccountHandler) SyncUpstreamModels(c *gin.Context) {
 			case service.UpstreamModelSyncErrorInternal:
 				response.InternalError(c, syncErr.SafeMessage())
 			default:
-				slog.Warn("sync_upstream_models_failed", "account_id", accountID, "kind", syncErr.Kind)
+				slog.Warn("sync_upstream_models_failed", "account_id", accountID, "kind", syncErr.Kind, "upstream_status", syncErr.StatusCode)
 				response.Error(c, http.StatusBadGateway, syncErr.SafeMessage())
 			}
 			return
@@ -3194,6 +3254,7 @@ func (h *AccountHandler) SyncUpstreamModelsPreview(c *gin.Context) {
 		Type         string            `json:"type" binding:"required"`
 		BaseURL      string            `json:"base_url"`
 		APIKey       string            `json:"api_key" binding:"required"`
+		ProxyID      *int64            `json:"proxy_id" binding:"omitempty,gte=0"`
 		ModelMapping map[string]string `json:"model_mapping"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -3220,6 +3281,22 @@ func (h *AccountHandler) SyncUpstreamModelsPreview(c *gin.Context) {
 		return
 	}
 
+	// Preview uses the draft connection without creating or updating an account.
+	// Resolve the selected proxy just as the saved-account path loads it.
+	if req.ProxyID != nil && *req.ProxyID > 0 {
+		if _, observer := service.ObserverGroupIDs(c.Request.Context()); observer {
+			response.ErrorFrom(c, service.ErrObserverScope)
+			return
+		}
+		proxy, err := h.adminService.GetProxy(c.Request.Context(), *req.ProxyID)
+		if err != nil || proxy == nil {
+			response.BadRequest(c, "Selected proxy is unavailable")
+			return
+		}
+		tempAccount.ProxyID = req.ProxyID
+		tempAccount.Proxy = proxy
+	}
+
 	catalog, err := h.accountTestService.SyncUpstreamModelCatalog(c.Request.Context(), tempAccount)
 	if err != nil {
 		var syncErr *service.UpstreamModelSyncError
@@ -3230,7 +3307,7 @@ func (h *AccountHandler) SyncUpstreamModelsPreview(c *gin.Context) {
 			case service.UpstreamModelSyncErrorInternal:
 				response.InternalError(c, syncErr.SafeMessage())
 			default:
-				slog.Warn("sync_upstream_models_preview_failed", "platform", req.Platform, "kind", syncErr.Kind)
+				slog.Warn("sync_upstream_models_preview_failed", "platform", req.Platform, "kind", syncErr.Kind, "upstream_status", syncErr.StatusCode)
 				response.Error(c, http.StatusBadGateway, syncErr.SafeMessage())
 			}
 			return
@@ -3473,4 +3550,9 @@ func sanitizeExtraBaseRPM(extra map[string]any) {
 		v = 10000
 	}
 	extra["base_rpm"] = v
+}
+
+// GetOpenAIRequestTimezones returns the supported account request timezone catalog.
+func (h *AccountHandler) GetOpenAIRequestTimezones(c *gin.Context) {
+	response.Success(c, gin.H{"default": service.DefaultOpenAIRequestTimezone, "timezones": service.OpenAIRequestTimezoneOptions()})
 }

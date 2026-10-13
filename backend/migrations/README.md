@@ -118,6 +118,15 @@ touch migrations/018_your_new_change.sql
 - **Runner**: `internal/repository/migrations_runner.go`
 - **Auto-run**: Migrations run automatically on service startup
 
+The migration identity is the full filename, not just its numeric prefix. The
+conversation-storage branch deployed `242_drop_platform_check_constraints.sql`,
+while production retained the same idempotent SQL as
+`270_drop_platform_check_constraints.sql`. Keep both files unchanged when merging
+these histories so existing checksum records remain valid. Replaying either file
+only drops the quota/composite platform whitelist; channel-monitor provider
+constraints remain intact. New platforms are validated by the application catalog.
+
+
 ## Best Practices
 
 1. **Keep migrations small and focused**

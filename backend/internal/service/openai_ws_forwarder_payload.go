@@ -30,6 +30,9 @@ func (s *OpenAIGatewayService) buildOpenAIResponsesWSURL(account *Account) (stri
 	if account == nil {
 		return "", errors.New("account is nil")
 	}
+	if account.IsExcelOAuth() {
+		return "", errExcelOAuthRouteUnavailable
+	}
 	var targetURL string
 	switch account.Type {
 	case AccountTypeOAuth:
@@ -88,6 +91,9 @@ func (s *OpenAIGatewayService) buildOpenAIWSHeaders(
 	routingModel string,
 	routingServiceTier string,
 ) (http.Header, openAIWSSessionHeaderResolution, error) {
+	if codexAccountIdentitySource(c, account).IsExcelOAuth() {
+		return nil, openAIWSSessionHeaderResolution{}, errExcelOAuthRouteUnavailable
+	}
 	headers := make(http.Header)
 	if account == nil || !account.IsOpenAIAgentIdentity() {
 		headers.Set("authorization", "Bearer "+token)
@@ -190,6 +196,7 @@ func (s *OpenAIGatewayService) buildOpenAIWSHeaders(
 
 	// 账号级请求头覆写（仅 openai api_key 账号启用时生效；OAuth 路径 no-op）。
 	// 覆盖所有 WS 模式（ctx_pool/dedicated/passthrough）的握手头。
+	applyOpenAIAPIKeyIdentityHeaders(headers, account, s.codexIdentityOverrideUA(account))
 	account.ApplyHeaderOverrides(headers)
 	setOpenAICodexRoutingHint(headers, account, routingModel, routingServiceTier)
 	logOpenAIRoutingDiagnostics(
@@ -410,12 +417,13 @@ func openAIWSPayloadCodexWindowID(payload []byte) string {
 // normalizeOpenAIWSContextWindowBoundary breaks a Responses continuation chain
 // when Codex moves to a new local context window. WebSocket response.create can
 // still carry the previous window's previous_response_id after new_context,
-// while HTTP starts the new window without that continuation anchor.
+// while HTTP starts the new window without that continuation anchor. The current
+// window must come from the client frame before handshake/identity normalization.
 func normalizeOpenAIWSContextWindowBoundary(
 	payload []byte,
 	previousWindowID string,
+	currentWindowID string,
 ) ([]byte, openAIWSContextWindowBoundary, error) {
-	currentWindowID := openAIWSPayloadCodexWindowID(payload)
 	boundary := openAIWSContextWindowBoundary{WindowID: currentWindowID}
 	if previousWindowID == "" || currentWindowID == "" || currentWindowID == previousWindowID {
 		return payload, boundary, nil

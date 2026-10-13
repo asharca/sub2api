@@ -53,8 +53,8 @@ func buildOpenAIResponsesURL(base string) string {
 }
 
 // buildOpenAIResponsesURLForPlatform 组装 Responses 端点（平台感知）。
-// DeepSeek 官方 Responses 端点为 /responses（无 /v1 前缀，适配 Codex）；
-// 其余平台维持 /v1/responses。
+// 供应商 profile 声明了 ResponsesPath 时按其拼接（如 DeepSeek 为无 /v1 前缀的
+// /responses）；其余平台维持 /v1/responses。
 //
 // 第三方 DeepSeek 兼容上游（聚合站/自建 relay）不统一：有的与官方一样在根路径
 // 提供 /responses，有的只提供 /v1/responses。因此在 base_url 上显式带上版本号

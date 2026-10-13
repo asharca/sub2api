@@ -174,7 +174,7 @@ const openAIQuotaAutoPauseSettingsRefreshKey = "openai_quota_auto_pause_settings
 
 // GetCyberSessionBlockRuntime 返回 (开关, TTL)，进程内缓存 ~60s，
 // 供网关热路径读取时避免 DB 往返。
-// 屏蔽设置、严格身份与用户白名单在单次 singleflight 中一起读取。
+// 屏蔽开关、TTL、严格身份开关与用户白名单在单次 singleflight 中一起读取。
 // 默认值：开关 false，TTL 1h（与粘性会话对齐）。
 func (s *SettingService) GetCyberSessionBlockRuntime(ctx context.Context) (bool, time.Duration) {
 	if cached, ok := s.cyberSessionBlockRuntimeCache.Load().(*cachedCyberSessionBlockRuntime); ok && cached != nil {
@@ -199,7 +199,8 @@ func (s *SettingService) GetCyberSessionBlockRuntime(ctx context.Context) (bool,
 
 		previous, _ := s.cyberSessionBlockRuntimeCache.Load().(*cachedCyberSessionBlockRuntime)
 		cacheTTL := cyberSessionBlockRuntimeCacheTTL
-		if enabledErr != nil && !errors.Is(enabledErr, ErrSettingNotFound) {
+		enabledLoadFailed := enabledErr != nil && !errors.Is(enabledErr, ErrSettingNotFound)
+		if enabledLoadFailed {
 			slog.Warn("failed to get cyber_session_block_enabled setting", "error", enabledErr)
 			cacheTTL = cyberSessionBlockRuntimeErrorTTL
 		}
@@ -211,7 +212,8 @@ func (s *SettingService) GetCyberSessionBlockRuntime(ctx context.Context) (bool,
 		}
 
 		enabled := enabledErr == nil && strings.TrimSpace(enabledVal) == "true"
-		strict := strictErr == nil && strings.TrimSpace(strictVal) == "true"
+		// A failed switch read also turns the strict identity gate off.
+		strict := !enabledLoadFailed && strictErr == nil && strings.TrimSpace(strictVal) == "true"
 
 		ttl := time.Hour
 		if ttlErr == nil {

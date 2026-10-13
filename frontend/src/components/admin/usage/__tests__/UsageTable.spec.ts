@@ -34,7 +34,7 @@ const localizedMessages: Record<'en' | 'zh', Record<string, string>> = {
 }
 
 const messages: Record<string, string> = {
-  'usage.outputTps': 'Output TPS',
+  'usage.latencyTps': 'Avg TPS',
   'admin.usage.userDeletedBadge': 'Deleted',
   'usage.costDetails': 'Cost Breakdown',
   'admin.usage.inputCost': 'Input Cost',
@@ -157,7 +157,6 @@ describe('admin UsageTable tooltip', () => {
       global: { stubs: { DataTable: DataTableStub, EmptyState: true, Icon: true, Teleport: true } },
     })
     expect(wrapper.findAll('[data-testid="latency-tps"]').map(cell => cell.text())).toEqual(['50.0 t/s', '-', '-'])
-    expect(wrapper.text()).toContain('usage.latencyTps')
   })
 
   beforeEach(() => {
@@ -984,7 +983,7 @@ describe('admin UsageTable latency TPS', () => {
       { request_id: 'req-tps-stream', output_tokens: 872, duration_ms: 31_260, first_token_ms: 2_910 },
     ])
 
-    expect(wrapper.text()).toContain('usage.latencyTps')
+    expect(wrapper.text()).toContain('Avg TPS')
     const cell = tpsCell(wrapper, 'req-tps-stream')
     expect(cell.text()).toBe('27.9 t/s')
     expect(cell.attributes('title')).toBe('usage.latencyTpsHint')
@@ -1057,11 +1056,17 @@ describe('admin UsageTable latency TPS', () => {
   it('renders a placeholder when TPS cannot be computed', () => {
     const wrapper = mountLatency([
       { request_id: 'req-tps-empty', output_tokens: 0, duration_ms: 1_200, first_token_ms: 300 },
+      { request_id: 'req-tps-interrupted', output_tokens: 1, duration_ms: 21_135, first_token_ms: 973 },
       { ...baseImageRow, request_id: 'req-tps-image', duration_ms: 40_000, first_token_ms: null },
     ])
 
     expect(tpsCell(wrapper, 'req-tps-empty').text()).toBe('-')
     expect(tpsCell(wrapper, 'req-tps-empty').attributes('title')).toBeUndefined()
+    expect(tpsCell(wrapper, 'req-tps-interrupted').text()).toBe('-')
+    expect(tpsCell(wrapper, 'req-tps-interrupted').classes()).not.toContain('text-red-600')
+    expect(barClasses(wrapper, 'req-tps-interrupted')).toEqual(
+      expect.arrayContaining(['from-emerald-500', 'via-emerald-500', 'to-emerald-500']),
+    )
     expect(tpsCell(wrapper, 'req-tps-image').text()).toBe('-')
   })
 })

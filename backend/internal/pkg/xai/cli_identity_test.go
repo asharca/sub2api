@@ -38,15 +38,19 @@ func TestCLIUserAgentMatchesOfficialInteractiveCapture(t *testing.T) {
 
 func TestResolveCLIVersionDefaultsToPinnedClientVersion(t *testing.T) {
 	t.Setenv(CLIVersionEnv, "")
-	// Default advertise pin is CLIClientVersion; CLIStableVersion is only the floor.
+	// The preferred pin may be newer than the minimum accepted override.
 	require.Equal(t, CLIClientVersion, ResolveCLIVersion())
 	require.True(t, IsSupportedCLIVersion(CLIClientVersion))
 	require.True(t, IsSupportedCLIVersion(CLIStableVersion))
 }
 
 func TestResolveCLIVersionAcceptsValidOverride(t *testing.T) {
-	t.Setenv(CLIVersionEnv, "1.0.14-alpha.1")
-	require.Equal(t, "1.0.14-alpha.1", ResolveCLIVersion())
+	for _, version := range []string{"1.0.13", "1.0.14-alpha.1", "1.0.45", "1.0.47-alpha.1"} {
+		t.Run(version, func(t *testing.T) {
+			t.Setenv(CLIVersionEnv, version)
+			require.Equal(t, version, ResolveCLIVersion())
+		})
+	}
 }
 
 func TestResolveCLIVersionRejectsUnsafeOrTooOld(t *testing.T) {

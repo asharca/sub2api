@@ -8,6 +8,8 @@ Go caches are isolated by target and refreshed on each source commit, with fallb
 
 All build jobs use the commit resolved by `prepare`, including a manual release's selected tag. Helper scripts come from the workflow revision and are passed as a run-local artifact, so older application tags do not need to contain the new scripts. The workflow serializes release runs to prevent simultaneous updates to moving image tags.
 
+Feature versions containing `-asharca.` or `-ashark.` select `.goreleaser.feature.yaml`: Linux amd64 archives/checksums and GHCR version/version-amd64 images only. They remain non-prerelease GitHub Releases, even when simple mode is requested, and do not synchronize VERSION to the default branch. The target commitish remains `feat/conversation-storage`.
+
 ## Validate without publication
 
 From a branch containing this workflow:
@@ -17,7 +19,7 @@ gh workflow run release.yml --ref <branch> \
   -f tag=<branch> -f dry_run=true -f simple_release=false
 ```
 
-A dry run builds all selected archives and both runtime images, verifies artifact provenance and produces the final checksum file. It exports images locally as OCI archives instead of pushing them. It skips registry logins, GitHub Release publication, DockerHub description updates, Telegram notifications and VERSION synchronization. Test the simple path separately with `simple_release=true`.
+A dry run builds all selected archives and runtime images, verifies artifact provenance and produces the final checksum file. It exports images locally as OCI archives instead of pushing them. It skips registry logins, GitHub Release publication, DockerHub description updates, Telegram notifications and VERSION synchronization. Test the simple path separately with `simple_release=true`; feature versions retain their archive/checksum publication contract.
 
 Dry-run artifacts are available in the Actions run, including `release-dry-run-report`. Compare job start/end times, GoReleaser's build duration and cache restore results. Do not present an initial cold-cache run as a warmed-cache benchmark; publishing network time is not measured by dry runs.
 

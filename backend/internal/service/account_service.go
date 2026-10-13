@@ -182,7 +182,9 @@ type AccountBulkUpdate struct {
 	Schedulable         *bool
 	Credentials         map[string]any
 	Extra               map[string]any
-	ProbeEnabled        *bool
+	// Per-account preparation state is applied in the same bulk SQL update.
+	ExcelBPSAuthorizationPending map[int64]bool
+	ProbeEnabled                 *bool
 	// EnsureCodexFingerprintSeed asks the repository to atomically preserve an
 	// existing valid Codex fingerprint seed or create one for eligible rows.
 	EnsureCodexFingerprintSeed bool
@@ -239,6 +241,9 @@ func NewAccountService(accountRepo AccountRepository, groupRepo GroupRepository)
 
 // Create 创建账号
 func (s *AccountService) Create(ctx context.Context, req CreateAccountRequest) (*Account, error) {
+	if err := ValidateModelMappingMode(req.Credentials); err != nil {
+		return nil, err
+	}
 	if req.Platform == PlatformTypeSafe && req.Type != AccountTypeAPIKey {
 		return nil, errors.New("typesafe accounts only support apikey credentials")
 	}
@@ -348,6 +353,9 @@ func (s *AccountService) Update(ctx context.Context, id int64, req UpdateAccount
 	}
 
 	if req.Credentials != nil {
+		if err := ValidateModelMappingMode(*req.Credentials); err != nil {
+			return nil, err
+		}
 		account.Credentials = SanitizeStoredCredentials(account.Platform, *req.Credentials)
 	}
 

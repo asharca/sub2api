@@ -27,7 +27,7 @@ class ReleaseMatrixTest(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         os.chdir(self.temp.name)
         self.addCleanup(os.chdir, self.previous)
-        for name in ('.goreleaser.yaml', '.goreleaser.simple.yaml'):
+        for name in ('.goreleaser.yaml', '.goreleaser.simple.yaml', '.goreleaser.feature.yaml'):
             shutil.copyfile(ROOT / name, name)
         Path('backend/cmd/server').mkdir(parents=True)
         release.VERSION_FILE.write_text('9.8.7\n')
@@ -56,6 +56,20 @@ class ReleaseMatrixTest(unittest.TestCase):
         self.assertEqual(len(full), 5)
         self.assertNotIn({'goos': 'windows', 'goarch': 'arm64'}, full)
         self.assertEqual(release.targets(True), [{'goos': 'linux', 'goarch': 'amd64'}])
+
+    def test_feature_release_keeps_amd64_assets_and_stable_release(self):
+        release.VERSION_FILE.write_text('0.2.15-asharca.1\n')
+        with patch.dict(os.environ, {'GITHUB_OUTPUT': 'outputs'}), patch.object(subprocess, 'check_output', return_value='a' * 40 + '\n'):
+            release.plan(argparse.Namespace(ref='feat/conversation-storage', dry_run=True, simple=True))
+        output = dict(line.split('=', 1) for line in Path('outputs').read_text().splitlines())
+        self.assertEqual(json.loads(output['matrix'])['include'], [{'goos': 'linux', 'goarch': 'amd64'}])
+        self.assertEqual(output['prerelease'], 'false')
+        self.assertEqual(output['feature'], 'true')
+        release.generate_config(argparse.Namespace(mode='publish', simple=True, output='publisher.yaml'))
+        data = yaml.safe_load(Path('publisher.yaml').read_text())
+        self.assertFalse(data['release']['prerelease'])
+        self.assertEqual(data['checksum']['extra_files'], data['release']['extra_files'])
+        self.assertNotIn('skip_upload', data['release'])
 
     def test_leaf_keeps_packaging_and_selects_only_one_target(self):
         original = release.config()

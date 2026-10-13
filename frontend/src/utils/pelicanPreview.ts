@@ -1,4 +1,4 @@
-import { extractPelicanHtml } from './pelicanHtml'
+import { authorizePelicanInlineScripts, extractPelicanHtml } from './pelicanHtml'
 
 export interface PelicanArtworkSize { width: number; height: number }
 export type PelicanPreviewMode = 'fit' | 'actual'
@@ -34,6 +34,15 @@ export function getPelicanViewport(html: string): PelicanArtworkSize {
 export function fitPelicanArtwork(artwork: PelicanArtworkSize, available: PelicanArtworkSize, mode: PelicanPreviewMode) {
   const scale = mode === 'actual' ? 1 : Math.max(0, Math.min(1, available.width / artwork.width, available.height / artwork.height))
   return { scale, width: artwork.width * scale, height: artwork.height * scale }
+}
+
+// Every srcdoc document gets a fresh channel, so late messages from the previous
+// artwork are ignored. crypto.randomUUID exists only in secure contexts (HTTPS,
+// localhost); getRandomValues also works when the panel is opened at
+// http://IP:port. Hex survives createPelicanPreviewDocument's channel filter.
+export function createPelicanPreviewChannel(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(16))
+  return `pelican-${Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')}`
 }
 
 export function readPelicanSizeMessage(event: MessageEvent, source: Window | null, channel: string): PelicanArtworkSize | null {
@@ -205,12 +214,14 @@ export function installPelicanMeasurement(target: Window & typeof globalThis, ch
   return stop
 }
 
-export function createPelicanPreviewDocument(html: string, channel: string): string {
-  const protectedHtml = extractPelicanHtml(html)
-  if (!protectedHtml) return ''
+export function createPelicanPreviewDocument(html: string, channel: string, nonce = ''): string {
+  const extractedHtml = extractPelicanHtml(html)
+  if (!extractedHtml) return ''
+  const protectedHtml = authorizePelicanInlineScripts(extractedHtml, nonce)
   const viewport = getPelicanViewport(protectedHtml)
   const safeChannel = channel.replace(/[^a-zA-Z0-9_-]/g, '')
-  const script = `<script data-pelican-preview="${safeChannel}">(${installPelicanMeasurement.toString()})(window,${JSON.stringify(safeChannel)},${JSON.stringify(viewport)},${MAX_DIMENSION});<\/script>`
+  const nonceAttribute = /^[A-Za-z0-9+/_=-]+$/.test(nonce) ? ` nonce="${nonce}"` : ''
+  const script = `<script data-pelican-preview="${safeChannel}"${nonceAttribute}>(${installPelicanMeasurement.toString()})(window,${JSON.stringify(safeChannel)},${JSON.stringify(viewport)},${MAX_DIMENSION});<\/script>`
   // The extraction helper always puts its restrictive CSP first. Keep instrumentation
   // after that CSP and before authored scripts, then wait for DOMContentLoaded.
   const endOfCsp = protectedHtml.indexOf('>', protectedHtml.indexOf('<meta')) + 1

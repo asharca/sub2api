@@ -1691,6 +1691,13 @@ func (c *openAIModelsCache) set(key string, manifest *OpenAIModelsResponse, now 
 // passed through verbatim. Custom API key manifests receive only the narrowly
 // scoped compatibility adjustments required by custom-provider Codex clients.
 func (s *OpenAIGatewayService) FetchCodexModelsManifest(ctx context.Context, account *Account, clientVersion, ifNoneMatch string) (*OpenAIModelsResponse, error) {
+	if account != nil && account.IsExcelBPSEnabled() {
+		return s.fetchExcelBPSCodexManifest(ctx, account, ifNoneMatch)
+	}
+	return s.fetchNativeCodexModelsManifest(ctx, account, clientVersion, ifNoneMatch)
+}
+
+func (s *OpenAIGatewayService) fetchNativeCodexModelsManifest(ctx context.Context, account *Account, clientVersion, ifNoneMatch string) (*OpenAIModelsResponse, error) {
 	if account == nil {
 		return nil, infraerrors.New(http.StatusInternalServerError, "OPENAI_CODEX_MODELS_ACCOUNT_REQUIRED", "account is required")
 	}
@@ -1699,6 +1706,9 @@ func (s *OpenAIGatewayService) FetchCodexModelsManifest(ctx context.Context, acc
 		return nil, infraerrors.Newf(http.StatusInternalServerError, "OPENAI_CODEX_MODELS_CREDENTIALS_FAILED", "resolve credential account: %v", err)
 	}
 
+	if credAccount.IsExcelOAuth() {
+		return nil, errExcelOAuthRouteUnavailable
+	}
 	clientVersion = strings.TrimSpace(clientVersion)
 	if clientVersion == "" {
 		clientVersion = CodexCanonicalClientVersion()
@@ -1866,6 +1876,21 @@ func (s *OpenAIGatewayService) fetchCachedOpenAIModels(ctx context.Context, requ
 	if state == openAIModelsCacheFresh {
 		return openAIModelsResponseForClient(manifest, ifNoneMatch), nil
 	}
+	if HasAPIKeyAdmissionOwner(ctx) {
+		// A background singleflight has no request-capacity owner. Limited
+		// callers share completed cache entries, but own and join their refresh
+		// independently so cancellation cannot strand work or cancel a peer.
+		refreshCtx, cancel := context.WithTimeout(ctx, codexModelsManifestRequestTimeout)
+		defer cancel()
+		refreshed, err := s.fetchAndCacheOpenAIModels(refreshCtx, cacheKey, fetch)
+		if err != nil {
+			if refreshCtx.Err() == nil && state == openAIModelsCacheStale {
+				return openAIModelsResponseForClient(manifest, ifNoneMatch), nil
+			}
+			return nil, err
+		}
+		return openAIModelsResponseForClient(refreshed, ifNoneMatch), nil
+	}
 	resultCh := s.refreshCachedOpenAIModels(cacheKey, request, fetch)
 	if state == openAIModelsCacheStale {
 		return openAIModelsResponseForClient(manifest, ifNoneMatch), nil
@@ -1889,24 +1914,34 @@ func (s *OpenAIGatewayService) refreshCachedOpenAIModels(cacheKey string, reques
 	return s.openAIModelsCache.refresh.DoChan(cacheKey, func() (any, error) {
 		ctx, cancel := context.WithTimeout(context.Background(), codexModelsManifestRequestTimeout)
 		defer cancel()
-		cached, _ := s.openAIModelsCache.get(cacheKey, time.Now())
-		ifNoneMatch := ""
-		if cached != nil {
-			ifNoneMatch = cached.upstreamETag
-		}
-		manifest, err := fetch(ctx, ifNoneMatch)
-		if err != nil {
-			return nil, err
-		}
-		if manifest.NotModified && cached != nil {
-			s.openAIModelsCache.set(cacheKey, cached, time.Now())
-			return cached, nil
-		}
-		if !manifest.NotModified {
-			s.openAIModelsCache.set(cacheKey, manifest, time.Now())
-		}
-		return manifest, nil
+		return s.fetchAndCacheOpenAIModels(ctx, cacheKey, fetch)
 	})
+}
+
+func (s *OpenAIGatewayService) fetchAndCacheOpenAIModels(ctx context.Context, cacheKey string, fetch func(context.Context, string) (*OpenAIModelsResponse, error)) (*OpenAIModelsResponse, error) {
+	cached, _ := s.openAIModelsCache.get(cacheKey, time.Now())
+	ifNoneMatch := ""
+	if cached != nil {
+		ifNoneMatch = cached.upstreamETag
+	}
+	manifest, err := fetch(ctx, ifNoneMatch)
+	if err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if manifest == nil {
+		return nil, infraerrors.New(http.StatusInternalServerError, "OPENAI_CODEX_MODELS_REQUEST_FAILED", "invalid Codex models manifest result")
+	}
+	if manifest.NotModified && cached != nil {
+		s.openAIModelsCache.set(cacheKey, cached, time.Now())
+		return cached, nil
+	}
+	if !manifest.NotModified {
+		s.openAIModelsCache.set(cacheKey, manifest, time.Now())
+	}
+	return manifest, nil
 }
 
 func (s *OpenAIGatewayService) fetchCodexModelsManifestUpstreamForRequest(request openAIModelsRequest) func(ctx context.Context, ifNoneMatch string) (*OpenAIModelsResponse, error) {
@@ -2114,6 +2149,8 @@ func adjustAPIKeyCodexModelsManifest(body []byte, account *Account) ([]byte, err
 		}
 		if isOpenAIGPT6AstraModel(target) {
 			target = "gpt-6-astra"
+		} else if openai.IsGPT61SolModelSpelling(target) {
+			target = "gpt-6.1-sol"
 		}
 		if _, targeted := apiKeyCodexModelsWithoutResponsesLite[target]; !targeted {
 			continue

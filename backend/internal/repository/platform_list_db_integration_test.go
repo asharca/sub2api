@@ -27,9 +27,8 @@ WHERE ns.nspname = 'public' AND tbl.relname = $1 AND c.conname = $2`, table, con
 	return exists
 }
 
-// 迁移 242 删除平台白名单 CHECK 约束：旧库（约束仍在）上可重复执行，执行后
-// 新登记的平台无需再做数据库迁移即可写入。
-func TestMigration242DropsPlatformCheckConstraints(t *testing.T) {
+// 迁移 242（production 分支为 270）删除平台白名单 CHECK 约束：旧库上可重复执行。
+func TestDropPlatformCheckConstraintsMigrationHistory(t *testing.T) {
 	ctx := context.Background()
 	tx := testEntTx(t)
 	client := tx.Client()
@@ -51,11 +50,13 @@ func TestMigration242DropsPlatformCheckConstraints(t *testing.T) {
 	require.True(t, platformConstraintExists(t, ctx, client, "user_platform_quotas", "user_platform_quotas_platform_check"))
 	require.True(t, platformConstraintExists(t, ctx, client, "composite_model_routes", "composite_model_routes_target_platform_check"))
 
-	migrationSQL, err := dbmigrations.FS.ReadFile("242_drop_platform_check_constraints.sql")
-	require.NoError(t, err)
-	for range 2 {
-		_, err = client.ExecContext(ctx, string(migrationSQL))
+	for _, filename := range []string{"242_drop_platform_check_constraints.sql", "270_drop_platform_check_constraints.sql"} {
+		migrationSQL, err := dbmigrations.FS.ReadFile(filename)
 		require.NoError(t, err)
+		for range 2 {
+			_, err = client.ExecContext(ctx, string(migrationSQL))
+			require.NoError(t, err)
+		}
 	}
 	require.False(t, platformConstraintExists(t, ctx, client, "user_platform_quotas", "user_platform_quotas_platform_check"))
 	require.False(t, platformConstraintExists(t, ctx, client, "composite_model_routes", "composite_model_routes_target_platform_check"))
@@ -65,7 +66,7 @@ func TestMigration242DropsPlatformCheckConstraints(t *testing.T) {
 
 	// 数据库层不再限制平台取值：模拟未来新登记的平台。
 	userID := mustCreateUserForQuota(t, client)
-	_, err = client.ExecContext(ctx, `
+	_, err := client.ExecContext(ctx, `
 INSERT INTO user_platform_quotas (user_id, platform, daily_limit_usd, daily_usage_usd, weekly_usage_usd, monthly_usage_usd, created_at, updated_at)
 VALUES ($1, 'future_platform', 1, 0, 0, 0, NOW(), NOW())`, userID)
 	require.NoError(t, err)

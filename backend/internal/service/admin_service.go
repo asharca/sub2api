@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"net/http"
+	"sync"
 	"time"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
@@ -132,6 +133,9 @@ type AdminService interface {
 	CheckProxyExists(ctx context.Context, host string, port int, username, password string) (bool, error)
 	TestProxy(ctx context.Context, id int64) (*ProxyTestResult, error)
 	CheckProxyQuality(ctx context.Context, id int64) (*ProxyQualityCheckResult, error)
+	TestMihomoNode(ctx context.Context, kernel MihomoNodeProber, name string) (*ProxyTestResult, error)
+	CheckMihomoNodeQuality(ctx context.Context, kernel MihomoNodeProber, name string) (*ProxyQualityCheckResult, error)
+	CreateMihomoNodeProxies(ctx context.Context, kernel MihomoStaticNodeBinder, names []string) (*MihomoNodeProxyImportResult, error)
 
 	// Redeem code management
 	ListRedeemCodes(ctx context.Context, page, pageSize int, codeType, status, search string, sortBy, sortOrder string) ([]RedeemCode, int64, error)
@@ -414,6 +418,7 @@ type UpdateGroupInput struct {
 }
 
 type CreateAccountInput struct {
+	InitialQualityPlan  *ScheduledTestPlan `json:"-"`
 	Name                string
 	Notes               *string
 	Platform            string
@@ -552,6 +557,7 @@ type CreateProxyInput struct {
 	Protocol       string
 	Host           string
 	Port           int
+	MihomoNodeID   string
 	Username       string
 	Password       string
 	ExpiresAt      *time.Time
@@ -709,6 +715,8 @@ var ErrRPMStatusUnavailable = infraerrors.New(http.StatusNotImplemented, "RPM_ST
 
 // adminServiceImpl implements AdminService
 type adminServiceImpl struct {
+	mihomoProxyMu        sync.Mutex
+	excelOAuthReauth     *OpenAIOAuthReauthService
 	cfg                  *config.Config
 	userRepo             UserRepository
 	groupRepo            GroupRepository
