@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
-  <title id="title">智能网关</title>
+  <title id="title">Model Train</title>
   <desc id="desc">A portal with flows converging in and fanning out, representing unified intelligent routing.</desc>
   <defs>
     <linearGradient id="gw-bg" x1="64" y1="48" x2="448" y2="464" gradientUnits="userSpaceOnUse">

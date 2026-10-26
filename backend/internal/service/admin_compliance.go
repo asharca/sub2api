@@ -19,8 +19,8 @@ const (
 	AdminComplianceDocumentPathEN = "docs/legal/admin-compliance.en.md"
 	AdminComplianceDocumentURLZH  = ""
 	AdminComplianceDocumentURLEN  = ""
-	AdminComplianceAckPhraseZH    = "我已阅读、理解并同意 智能网关 部署与运营合规承诺"
-	AdminComplianceAckPhraseEN    = "I have read, understood, and agree to the Intelligent Gateway Deployment and Operation Compliance Commitment"
+	AdminComplianceAckPhraseZH    = "我已阅读、理解并同意 Model Train 部署与运营合规承诺"
+	AdminComplianceAckPhraseEN    = "I have read, understood, and agree to the Model Train Deployment and Operation Compliance Commitment"
 
 	settingKeyAdminComplianceAcknowledgement = "admin_compliance_acknowledgement"
 )

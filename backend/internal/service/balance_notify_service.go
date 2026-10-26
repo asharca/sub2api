@@ -22,7 +22,7 @@ const (
 	quotaDimWeekly = "weekly"
 	quotaDimTotal  = "total"
 
-	defaultSiteName = "智能网关"
+	defaultSiteName = "Model Train"
 )
 
 // quotaDimLabels maps dimension names to display labels.

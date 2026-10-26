@@ -93,7 +93,7 @@ const (
 	totpLoginTTL    = 5 * time.Minute
 	totpAttemptsTTL = 15 * time.Minute
 	maxTotpAttempts = 5
-	totpIssuer      = "智能网关"
+	totpIssuer      = "Model Train"
 )
 
 // TotpService handles TOTP operations

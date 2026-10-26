@@ -269,7 +269,7 @@ const { t, te } = useI18n()
 const appStore = useAppStore()
 
 const legend = ['operational', 'degraded', 'down', 'empty'] as const
-const siteName = computed(() => appStore.siteName || '智能网关')
+const siteName = computed(() => appStore.siteName || 'Model Train')
 const layout = computed(() => monitorV3CategoryLayout(props.status?.categories || []))
 const windowRange = computed(() => (props.status
   ? monitorV3WindowRange(props.status.window.start, props.status.window.end, props.status.generated_at)

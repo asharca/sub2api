@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	typeSafeTestDefaultState    = "Intelligent Gateway connection test"
+	typeSafeTestDefaultState    = "Model Train connection test"
 	typeSafeTestQuestionID      = "connection_test"
 	typeSafeTestMaxPreviewBytes = 2000
 )

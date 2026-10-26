@@ -234,7 +234,7 @@ export default {
           verifyFailed: "验证失败，请检查用户 ID、访问令牌和所选账号。",
           saveIncomplete: "部分账号未能完成验证，配置尚未确认保存，请检查匹配结果后重试。",
         },
-        trustWarning: '此列的倍率与余额由上游站点针对当前 API Key 自行声明。智能网关 无法验证这些数据是否与实际扣费一致；上游站点或中间代理可能返回伪造、过期或被篡改的数据。请结合账单、余额变化和实际用量自行核验。',
+        trustWarning: '此列的倍率与余额由上游站点针对当前 API Key 自行声明。Model Train 无法验证这些数据是否与实际扣费一致；上游站点或中间代理可能返回伪造、过期或被篡改的数据。请结合账单、余额变化和实际用量自行核验。',
         autoProbe: '自动探测上游渠道声明',
         autoProbeHint: '启用后按全局周期刷新上游声明的倍率与余额；此开关本身不会修改账号倍率。',
         syncRate: '同步上游声明倍率',
@@ -1041,8 +1041,8 @@ export default {
         searchTestHint:
           '独立网页搜索探测（与网关 /v1/web_search 语义一致），不是带 tools 的自由对话。',
         ttsTextLabel: 'TTS 文本',
-        ttsTextPlaceholder: '例如：Hello from 智能网关 connectivity test.',
-        ttsTextDefault: 'Hello from 智能网关 account connectivity test.',
+        ttsTextPlaceholder: '例如：Hello from Model Train connectivity test.',
+        ttsTextDefault: 'Hello from Model Train account connectivity test.',
         ttsTestHint: '独立调用 /v1/tts（language=en）；成功时显示音频字节数。',
         sttTestHint: '独立调用 /v1/stt，使用合成静音 WAV；成功表示接口可达。',
         realtimeTestHint:

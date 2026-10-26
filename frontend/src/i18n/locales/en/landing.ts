@@ -5,6 +5,7 @@ export default {
   },
   // Home Page
   home: {
+    viewOnGithub: 'View on GitHub',
     viewDocs: 'View Documentation',
     docs: 'Docs',
     switchToLight: 'Switch to Light Mode',
@@ -14,8 +15,10 @@ export default {
     getStarted: 'Get Started',
     goToDashboard: 'Go to Dashboard',
     // User-focused value proposition
+    heroSubtitle: 'One Key, All AI Models',
+    heroDescription: 'No need to manage multiple subscriptions. Access Claude, GPT, Gemini and more with a single API key',
     tags: {
-      subscriptionToApi: 'Multi-Model Access',
+      subscriptionToApi: 'Subscription to API',
       stickySession: 'Session Persistence',
       realtimeBilling: 'Pay As You Go'
     },
@@ -24,16 +27,16 @@ export default {
       title: 'Sound Familiar?',
       items: {
         expensive: {
-          title: 'High Integration Costs',
-          desc: 'Integrating each AI service separately drives up development and maintenance costs'
+          title: 'High Subscription Costs',
+          desc: 'Paying for multiple AI subscriptions that add up every month'
         },
         complex: {
-          title: 'Channel Chaos',
-          desc: 'APIs and keys scattered across different platforms are hard to manage centrally'
+          title: 'Account Chaos',
+          desc: 'Managing scattered accounts and API keys across different platforms'
         },
         unstable: {
           title: 'Service Interruptions',
-          desc: 'A single upstream channel hitting limits or failing disrupts your business'
+          desc: 'Single accounts hitting rate limits and disrupting your workflow'
         },
         noControl: {
           title: 'No Usage Control',
@@ -50,7 +53,7 @@ export default {
       unifiedGateway: 'One-Click Access',
       unifiedGatewayDesc: 'Get a single API key to call all connected AI models. No separate applications needed.',
       multiAccount: 'Always Reliable',
-      multiAccountDesc: 'Smart routing across multiple upstream channels with automatic failover. Say goodbye to errors.',
+      multiAccountDesc: 'Smart routing across multiple upstream accounts with automatic failover. Say goodbye to errors.',
       balanceQuota: 'Pay What You Use',
       balanceQuotaDesc: 'Usage-based billing with quota limits. Full visibility into team consumption.'
     },
@@ -59,13 +62,13 @@ export default {
       title: 'Why Choose Us?',
       headers: {
         feature: 'Comparison',
-        official: 'Direct Official Access',
-        us: 'Intelligent Gateway'
+        official: 'Official Subscriptions',
+        us: 'Our Platform'
       },
       items: {
         pricing: {
           feature: 'Pricing',
-          official: 'Fixed monthly fee or official pricing',
+          official: 'Fixed monthly fee, pay even if unused',
           us: 'Pay only for what you use'
         },
         models: {
@@ -80,8 +83,8 @@ export default {
         },
         stability: {
           feature: 'Stability',
-          official: 'Single channel easily limited',
-          us: 'Multi-channel pool, auto-failover'
+          official: 'Single account rate limits',
+          us: 'Multi-account pool, auto-failover'
         },
         control: {
           feature: 'Usage Control',
@@ -89,16 +92,6 @@ export default {
           us: 'Quotas & detailed analytics'
         }
       }
-    },
-    providers: {
-      title: 'Supported AI Models',
-      description: 'One API, Multiple Choices',
-      supported: 'Supported',
-      soon: 'Soon',
-      claude: 'Claude',
-      gemini: 'Gemini',
-      antigravity: 'Antigravity',
-      more: 'More'
     },
     // CTA section
     cta: {
@@ -189,8 +182,8 @@ export default {
 
   // Setup Wizard
   setup: {
-    title: '智能网关 Setup',
-    description: 'Configure your 智能网关 instance',
+    title: 'Model Train Setup',
+    description: 'Configure your Model Train instance',
     database: {
       title: 'Database Configuration',
       description: 'Connect to your PostgreSQL database',
