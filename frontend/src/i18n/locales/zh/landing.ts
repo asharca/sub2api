@@ -14,8 +14,6 @@ export default {
     getStarted: '立即开始',
     goToDashboard: '进入控制台',
     // 新增：面向用户的价值主张
-    heroSubtitle: '一个密钥，畅用多个 AI 模型',
-    heroDescription: '一个密钥统一接入 Claude、GPT、Gemini 等主流 AI 服务，开箱即用',
     tags: {
       subscriptionToApi: '多模型接入',
       stickySession: '会话保持',

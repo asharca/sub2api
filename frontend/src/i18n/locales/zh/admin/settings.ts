@@ -725,7 +725,7 @@ export default {
         siteNamePlaceholder: '智能网关',
         siteSubtitle: '站点副标题',
         siteSubtitleHint: '显示在登录和注册页面',
-        siteSubtitlePlaceholder: '智能 AI 网关平台',
+        siteSubtitlePlaceholder: '一站式 AI 模型接入与智能调度平台',
         apiBaseUrl: 'API 端点地址',
         apiBaseUrlHint: '用于"使用密钥"、"导入到 CC Switch"和回调地址建议，留空则使用当前站点地址',
         apiBaseUrlPlaceholder: 'https://api.example.com',

@@ -10306,7 +10306,7 @@ const form = reactive<SettingsForm>({
   default_user_rpm_limit: 0,
   site_name: "智能网关",
   site_logo: "",
-  site_subtitle: "智能 AI 网关平台",
+  site_subtitle: "一站式 AI 模型接入与智能调度平台",
   api_base_url: "",
   contact_info: "",
   doc_url: "",

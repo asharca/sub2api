@@ -1221,7 +1221,7 @@ func TestAPIContracts(t *testing.T) {
 					"google_oauth_frontend_redirect_url": "/auth/oauth/callback",
 					"site_name": "智能网关",
 					"site_logo": "",
-					"site_subtitle": "智能 AI 网关平台",
+					"site_subtitle": "一站式 AI 模型接入与智能调度平台",
 					"api_base_url": "",
 					"api_key_acl_trust_forwarded_ip": false,
 					"forwarded_client_ip_headers": [],

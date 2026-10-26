@@ -406,7 +406,7 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 		ForwardedClientIPHeaders:               forwardedClientIPHeaders,
 		SiteName:                               s.getStringOrDefault(settings, SettingKeySiteName, "智能网关"),
 		SiteLogo:                               settings[SettingKeySiteLogo],
-		SiteSubtitle:                           s.getStringOrDefault(settings, SettingKeySiteSubtitle, "智能 AI 网关平台"),
+		SiteSubtitle:                           s.getStringOrDefault(settings, SettingKeySiteSubtitle, "一站式 AI 模型接入与智能调度平台"),
 		APIBaseURL:                             settings[SettingKeyAPIBaseURL],
 		ContactInfo:                            settings[SettingKeyContactInfo],
 		DocURL:                                 settings[SettingKeyDocURL],

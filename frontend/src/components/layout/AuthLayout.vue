@@ -71,7 +71,7 @@ const appStore = useAppStore()
 
 const siteName = computed(() => appStore.siteName || '智能网关')
 const siteLogo = computed(() => sanitizeUrl(appStore.siteLogo || '', { allowRelative: true, allowDataUrl: true }))
-const siteSubtitle = computed(() => appStore.cachedPublicSettings?.site_subtitle || '智能 AI 网关平台')
+const siteSubtitle = computed(() => appStore.cachedPublicSettings?.site_subtitle || '一站式 AI 模型接入与智能调度平台')
 const settingsLoaded = computed(() => appStore.publicSettingsLoaded)
 
 const currentYear = computed(() => new Date().getFullYear())

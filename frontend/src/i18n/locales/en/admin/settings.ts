@@ -731,7 +731,7 @@ export default {
         siteNamePlaceholder: '智能网关',
         siteNameHint: 'Displayed in emails and page titles',
         siteSubtitle: 'Site Subtitle',
-        siteSubtitlePlaceholder: '智能 AI 网关平台',
+        siteSubtitlePlaceholder: '一站式 AI 模型接入与智能调度平台',
         siteSubtitleHint: 'Displayed on login and register pages',
         apiBaseUrl: 'API Base URL',
         apiBaseUrlPlaceholder: 'https://api.example.com',

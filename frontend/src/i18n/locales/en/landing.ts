@@ -14,8 +14,6 @@ export default {
     getStarted: 'Get Started',
     goToDashboard: 'Go to Dashboard',
     // User-focused value proposition
-    heroSubtitle: 'One Key, All AI Models',
-    heroDescription: 'Access Claude, GPT, Gemini and more mainstream AI services through one unified API key',
     tags: {
       subscriptionToApi: 'Multi-Model Access',
       stickySession: 'Session Persistence',
