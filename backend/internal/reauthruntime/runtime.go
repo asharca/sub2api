@@ -221,7 +221,7 @@ func (m *Manager) get(ctx context.Context, url string, limit int64) ([]byte, err
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("User-Agent", "Sub2API-Reauth")
+	req.Header.Set("User-Agent", "AIGateway-Reauth")
 	resp, err := m.client.Do(req)
 	if err != nil {
 		return nil, err

@@ -238,7 +238,7 @@ export default {
       expiryDaysPlaceholder: 'Custom days, empty = never',
       expiryWarnDays: 'Expiry warning (days)',
       fallbackMode: 'Failure / expiry fallback',
-      fallbackModeHint: 'Applies the selected policy on expiry. For eligible OpenAI HTTP connection failures, runtime fallback requires confirmation that the request has not been sent; streams with output are not replayed by this fallback. Direct connections use the network of the environment running Sub2API.',
+      fallbackModeHint: 'Applies the selected policy on expiry. For eligible OpenAI HTTP connection failures, runtime fallback requires confirmation that the request has not been sent; streams with output are not replayed by this fallback. Direct connections use the network of the environment running Intelligent Gateway.',
       fallbackNone: 'No fallback',
       fallbackProxy: 'Backup proxy',
       fallbackDirect: 'Direct connection',

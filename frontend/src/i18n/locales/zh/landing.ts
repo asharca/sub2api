@@ -5,7 +5,6 @@ export default {
   },
   // Home Page
   home: {
-    viewOnGithub: '在 GitHub 上查看',
     viewDocs: '查看文档',
     docs: '文档',
     switchToLight: '切换到浅色模式',
@@ -16,9 +15,9 @@ export default {
     goToDashboard: '进入控制台',
     // 新增：面向用户的价值主张
     heroSubtitle: '一个密钥，畅用多个 AI 模型',
-    heroDescription: '无需管理多个订阅账号，一站式接入 Claude、GPT、Gemini 等主流 AI 服务',
+    heroDescription: '一个密钥统一接入 Claude、GPT、Gemini 等主流 AI 服务，开箱即用',
     tags: {
-      subscriptionToApi: '订阅转 API',
+      subscriptionToApi: '多模型接入',
       stickySession: '会话保持',
       realtimeBilling: '按量计费'
     },
@@ -27,16 +26,16 @@ export default {
       title: '你是否也遇到这些问题？',
       items: {
         expensive: {
-          title: '订阅费用高',
-          desc: '每个 AI 服务都要单独订阅，每月支出越来越多'
+          title: '接入成本高',
+          desc: '每个 AI 服务都要单独对接，开发和维护成本越来越高'
         },
         complex: {
-          title: '多账号难管理',
-          desc: '不同平台的账号、密钥分散各处，管理起来很麻烦'
+          title: '多渠道难管理',
+          desc: '不同平台的接口、密钥分散各处，统一管理很麻烦'
         },
         unstable: {
           title: '服务不稳定',
-          desc: '单一账号容易触发限制，影响正常使用'
+          desc: '单一渠道容易受限或故障，影响业务连续性'
         },
         noControl: {
           title: '用量无法控制',
@@ -53,7 +52,7 @@ export default {
       unifiedGateway: '一键接入',
       unifiedGatewayDesc: '获取一个 API 密钥，即可调用所有已接入的 AI 模型，无需分别申请。',
       multiAccount: '稳定可靠',
-      multiAccountDesc: '智能调度多个上游账号，自动切换和负载均衡，告别频繁报错。',
+      multiAccountDesc: '智能调度多个上游渠道，自动切换和负载均衡，告别频繁报错。',
       balanceQuota: '用多少付多少',
       balanceQuotaDesc: '按实际使用量计费，支持设置配额上限，团队用量一目了然。'
     },
@@ -62,13 +61,13 @@ export default {
       title: '为什么选择我们？',
       headers: {
         feature: '对比项',
-        official: '官方订阅',
-        us: '本平台'
+        official: '官方直连',
+        us: '智能网关'
       },
       items: {
         pricing: {
           feature: '付费方式',
-          official: '固定月费，用不完也付',
+          official: '固定月费或按官方定价',
           us: '按量付费，用多少付多少'
         },
         models: {
@@ -83,8 +82,8 @@ export default {
         },
         stability: {
           feature: '服务稳定性',
-          official: '单账号易触发限制',
-          us: '多账号池，自动切换'
+          official: '单一渠道易受限',
+          us: '多渠道池，自动切换'
         },
         control: {
           feature: '用量控制',

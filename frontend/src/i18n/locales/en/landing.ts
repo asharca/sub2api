@@ -5,7 +5,6 @@ export default {
   },
   // Home Page
   home: {
-    viewOnGithub: 'View on GitHub',
     viewDocs: 'View Documentation',
     docs: 'Docs',
     switchToLight: 'Switch to Light Mode',
@@ -16,9 +15,9 @@ export default {
     goToDashboard: 'Go to Dashboard',
     // User-focused value proposition
     heroSubtitle: 'One Key, All AI Models',
-    heroDescription: 'No need to manage multiple subscriptions. Access Claude, GPT, Gemini and more with a single API key',
+    heroDescription: 'Access Claude, GPT, Gemini and more mainstream AI services through one unified API key',
     tags: {
-      subscriptionToApi: 'Subscription to API',
+      subscriptionToApi: 'Multi-Model Access',
       stickySession: 'Session Persistence',
       realtimeBilling: 'Pay As You Go'
     },
@@ -27,16 +26,16 @@ export default {
       title: 'Sound Familiar?',
       items: {
         expensive: {
-          title: 'High Subscription Costs',
-          desc: 'Paying for multiple AI subscriptions that add up every month'
+          title: 'High Integration Costs',
+          desc: 'Integrating each AI service separately drives up development and maintenance costs'
         },
         complex: {
-          title: 'Account Chaos',
-          desc: 'Managing scattered accounts and API keys across different platforms'
+          title: 'Channel Chaos',
+          desc: 'APIs and keys scattered across different platforms are hard to manage centrally'
         },
         unstable: {
           title: 'Service Interruptions',
-          desc: 'Single accounts hitting rate limits and disrupting your workflow'
+          desc: 'A single upstream channel hitting limits or failing disrupts your business'
         },
         noControl: {
           title: 'No Usage Control',
@@ -53,7 +52,7 @@ export default {
       unifiedGateway: 'One-Click Access',
       unifiedGatewayDesc: 'Get a single API key to call all connected AI models. No separate applications needed.',
       multiAccount: 'Always Reliable',
-      multiAccountDesc: 'Smart routing across multiple upstream accounts with automatic failover. Say goodbye to errors.',
+      multiAccountDesc: 'Smart routing across multiple upstream channels with automatic failover. Say goodbye to errors.',
       balanceQuota: 'Pay What You Use',
       balanceQuotaDesc: 'Usage-based billing with quota limits. Full visibility into team consumption.'
     },
@@ -62,13 +61,13 @@ export default {
       title: 'Why Choose Us?',
       headers: {
         feature: 'Comparison',
-        official: 'Official Subscriptions',
-        us: 'Our Platform'
+        official: 'Direct Official Access',
+        us: 'Intelligent Gateway'
       },
       items: {
         pricing: {
           feature: 'Pricing',
-          official: 'Fixed monthly fee, pay even if unused',
+          official: 'Fixed monthly fee or official pricing',
           us: 'Pay only for what you use'
         },
         models: {
@@ -83,8 +82,8 @@ export default {
         },
         stability: {
           feature: 'Stability',
-          official: 'Single account rate limits',
-          us: 'Multi-account pool, auto-failover'
+          official: 'Single channel easily limited',
+          us: 'Multi-channel pool, auto-failover'
         },
         control: {
           feature: 'Usage Control',

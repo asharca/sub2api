@@ -391,7 +391,7 @@ export default {
           verifyFailed: "Verification failed. Check the user ID, access token, and selected accounts.",
           saveIncomplete: "Some accounts were not verified. Saving has not been confirmed. Check the matching results and retry.",
         },
-        trustWarning: 'The rate and balance in this column are declared by the upstream site for the current API key. Sub2API cannot verify that they match actual charges. The upstream site or an intermediary may return forged, stale, or modified data. Verify them against bills, balance changes, and actual usage.',
+        trustWarning: 'The rate and balance in this column are declared by the upstream site for the current API key. Intelligent Gateway cannot verify that they match actual charges. The upstream site or an intermediary may return forged, stale, or modified data. Verify them against bills, balance changes, and actual usage.',
         autoProbe: 'Automatically probe upstream declaration',
         autoProbeHint: 'Refresh the rate and balance declared by the upstream on the global interval. This switch alone does not change the account rate.',
         syncRate: 'Sync upstream declared rate',
@@ -932,8 +932,8 @@ export default {
         searchTestHint:
           'Standalone web_search probe (same as gateway /v1/web_search). Not a free-form chat with tools.',
         ttsTextLabel: 'TTS text',
-        ttsTextPlaceholder: 'Example: Hello from Sub2API connectivity test.',
-        ttsTextDefault: 'Hello from Sub2API account connectivity test.',
+        ttsTextPlaceholder: 'Example: Hello from Intelligent Gateway connectivity test.',
+        ttsTextDefault: 'Hello from Intelligent Gateway account connectivity test.',
         ttsTestHint: 'Standalone /v1/tts with language=en; success reports audio byte size.',
         sttTestHint: 'Standalone /v1/stt with a synthetic silent WAV; success means the endpoint is reachable.',
         realtimeTestHint:
