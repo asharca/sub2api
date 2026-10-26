@@ -15,7 +15,9 @@ type OAuthModelMappingRule struct {
 
 func defaultOAuthModelMappings(platform string) []OAuthModelMappingRule {
 	if platform == PlatformOpenAI {
-		return []OAuthModelMappingRule{{From: "gpt-5.4", To: "gpt-5.5"}}
+		// gpt-5.5 is retired for ChatGPT sign-in (OAuth) accounts upstream, so the
+		// shipped example maps the legacy alias to its sanctioned replacement.
+		return []OAuthModelMappingRule{{From: "gpt-5.4", To: "gpt-6.1-sol"}}
 	}
 	return []OAuthModelMappingRule{}
 }

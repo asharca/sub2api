@@ -13,7 +13,7 @@ func TestOAuthModelMappingLegacyAndRoundTrip(t *testing.T) {
 	c, err := GetOAuthAutoConfig(t.Context(), repo)
 	require.NoError(t, err)
 	require.Nil(t, c.ModelMappings, "legacy settings do not change account routing before an explicit save")
-	require.Equal(t, []OAuthModelMappingRule{{From: "gpt-5.4", To: "gpt-5.5"}}, DefaultOAuthAutoConfig().ModelMappings)
+	require.Equal(t, []OAuthModelMappingRule{{From: "gpt-5.4", To: "gpt-6.1-sol"}}, DefaultOAuthAutoConfig().ModelMappings)
 	c.ModelMappings = []OAuthModelMappingRule{{From: "custom", To: "custom-upstream"}}
 	svc := NewAccountOpsService(repo, nil, nil)
 	svc.autoGroups = autoConfigGroups{}
@@ -85,15 +85,16 @@ func TestOAuthModelMappingScopeAndImportedRules(t *testing.T) {
 			raw, err := json.Marshal(c)
 			require.NoError(t, err)
 			svc := &adminServiceImpl{settingService: NewSettingService(&accountOpsSettingsStub{raw: string(raw)}, nil), groupRepo: autoConfigGroups{group: &Group{ID: 2, Platform: PlatformOpenAI, Status: StatusActive}}}
-			originalMapping := map[string]any{"gpt-5.5": "gpt-5.5"}
+			originalMapping := map[string]any{"gpt-6.1-sol": "gpt-6.1-sol"}
 			originalCredentials := map[string]any{"access_token": "fake-token", "model_mapping": originalMapping}
 			input := &CreateAccountInput{Platform: tc.platform, Type: tc.kind, Credentials: originalCredentials, Priority: 13, Concurrency: 7, GroupIDs: []int64{9}}
 			require.NoError(t, svc.ApplyOAuthAutoConfig(t.Context(), input))
 			account := &Account{Platform: input.Platform, Type: input.Type, Credentials: input.Credentials}
 			if tc.apply {
-				require.Equal(t, "gpt-5.5", account.GetMappedModel("gpt-5.4"))
+				require.Equal(t, "gpt-6.1-sol", account.GetMappedModel("gpt-5.4"))
 				require.True(t, account.IsModelSupported("gpt-5.4"))
-				require.True(t, account.IsModelSupported("gpt-5.5"))
+				require.True(t, account.IsModelSupported("gpt-6.1-sol"))
+				require.False(t, account.IsModelSupported("gpt-5.5"), "gpt-5.5 is retired for OAuth accounts")
 				require.False(t, account.IsModelSupported("gpt-other"), "retain existing allowlist semantics")
 				require.Equal(t, c.Revision, input.Extra["auto_config_initial_revision"])
 				require.Equal(t, c.Priority, input.Priority)
@@ -129,8 +130,8 @@ func TestOAuthModelMappingEmptyCredentialsAndIsolation(t *testing.T) {
 	secondMapping, ok := second.Credentials["model_mapping"].(map[string]any)
 	require.True(t, ok)
 	firstMapping["gpt-5.4"] = "changed"
-	require.Equal(t, "gpt-5.5", secondMapping["gpt-5.4"])
-	require.Equal(t, "gpt-5.5", rules[0].To)
+	require.Equal(t, "gpt-6.1-sol", secondMapping["gpt-5.4"])
+	require.Equal(t, "gpt-6.1-sol", rules[0].To)
 }
 
 func TestOAuthModelMappingCRSNewAccount(t *testing.T) {
@@ -145,7 +146,7 @@ func TestOAuthModelMappingCRSNewAccount(t *testing.T) {
 	original := map[string]any{"access_token": "fake-token", "model_mapping": originalMapping}
 	account := &Account{Platform: PlatformOpenAI, Type: AccountTypeOAuth, Credentials: original, Concurrency: 7}
 	require.NoError(t, syncer.createSyncedAccount(t.Context(), account))
-	require.Equal(t, "gpt-5.5", repo.created.GetMappedModel("gpt-5.4"))
+	require.Equal(t, "gpt-6.1-sol", repo.created.GetMappedModel("gpt-5.4"))
 	require.Equal(t, "fake-token", repo.created.Credentials["access_token"])
 	require.Equal(t, "gpt-5.4", originalMapping["gpt-5.4"])
 	require.Equal(t, "gpt-5.5", repo.created.GetMappedModel("gpt-5.5"))
@@ -158,7 +159,7 @@ func TestOAuthModelMappingIdentityImportScope(t *testing.T) {
 		name, platform, kind, want string
 		enabled                    bool
 	}{
-		{"enabled OAuth", PlatformOpenAI, AccountTypeOAuth, "gpt-5.5", true},
+		{"enabled OAuth", PlatformOpenAI, AccountTypeOAuth, "gpt-6.1-sol", true},
 		{"disabled", PlatformOpenAI, AccountTypeOAuth, "gpt-5.4", false},
 		{"API key", PlatformOpenAI, AccountTypeAPIKey, "gpt-5.4", true},
 		{"other platform", PlatformAnthropic, AccountTypeOAuth, "gpt-5.4", true},

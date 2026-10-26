@@ -157,13 +157,13 @@ export default {
       refreshTitle: 'Aggregation interval',
       refreshHint: 'Affects matrix time granularity and refresh cadence',
       refreshAria: 'Aggregation interval',
+      selectPlatform: 'Select a platform',
+      addPlatform: 'Add platform',
       platformsTitle: 'Platforms and models',
       platformsHint:
         'Leave empty = show all real model names; when filled, only listed models get their own rows and the rest roll into “Other”. Add a supported platform, or type the same identifier as a group platform. Composite group usage is recorded on the account’s concrete platform.',
       platformsOrderHint:
         'List order is the display order for filters, cards, and the matrix. The model summary stays ranked by request volume. The six factory platforms stay; a newly added platform can be deleted only while it is off.',
-      addPlatform: 'Add platform',
-      selectPlatform: 'Choose a supported or group platform',
       customPlatform: 'Or type the same identifier as a group platform',
       platformRequired: 'Choose or type a platform to add',
       platformInvalid:

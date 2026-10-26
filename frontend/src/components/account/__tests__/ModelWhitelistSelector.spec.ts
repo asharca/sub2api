@@ -29,12 +29,7 @@ vi.mock('vue-i18n', async () => {
   return {
     ...actual,
     useI18n: () => ({
-      t: (key: string, params?: Record<string, string>) => {
-        if (key === 'common.copy') return '复制'
-        if (key === 'admin.accounts.modelMappingConflict') return `Model mapping conflict: ${params?.from} → ${params?.to}`
-        if (key === 'admin.accounts.syncUpstreamModelsError') return `Sync failed: ${params?.message}`
-        return key
-      }
+      t: (key: string, params?: Record<string, string>) => key === 'common.copy' ? '复制' : key === 'admin.accounts.modelMappingConflict' ? `Model mapping conflict: ${params?.from} → ${params?.to}` : key === 'admin.accounts.syncUpstreamModelsError' ? `${key}: ${params?.message}` : key
     })
   }
 })
@@ -249,6 +244,26 @@ describe('ModelWhitelistSelector', () => {
     expect(showSuccess).not.toHaveBeenCalled()
   })
 
+  it('shows the backend message when upstream sync is rejected', async () => {
+    syncUpstreamModels.mockRejectedValue({
+      status: 400,
+      code: 'BAD_REQUEST',
+      message: 'Vertex API key accounts do not support upstream model listing'
+    })
+    const wrapper = mountSelector({ platform: 'gemini', accountId: 174 })
+
+    const syncButton = wrapper
+      .findAll('button')
+      .find(button => button.text() === 'admin.accounts.syncUpstreamModels')
+    expect(syncButton).toBeDefined()
+    await syncButton!.trigger('click')
+    await flushPromises()
+
+    expect(showError).toHaveBeenCalledWith(
+      'admin.accounts.syncUpstreamModelsError: Vertex API key accounts do not support upstream model listing'
+    )
+  })
+
   it('shows success and a partial warning when some capabilities were saved', async () => {
     syncUpstreamModels.mockResolvedValue({
       models: ['gpt-6-astra', 'gpt-image-2'],
@@ -328,7 +343,7 @@ describe('ModelWhitelistSelector', () => {
     await syncButton.trigger('click')
     await flushPromises()
 
-    expect(showError).toHaveBeenCalledWith('Sync failed: Upstream model list request failed with HTTP 401')
+    expect(showError).toHaveBeenCalledWith('admin.accounts.syncUpstreamModelsError: Upstream model list request failed with HTTP 401')
     expect(wrapper.emitted('update:modelValue')).toBeUndefined()
     expect(wrapper.emitted('upstream-synced')).toBeUndefined()
     expect(syncButton.attributes('disabled')).toBeUndefined()

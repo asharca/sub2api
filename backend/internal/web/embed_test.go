@@ -688,6 +688,15 @@ func TestFrontendServer_Middleware(t *testing.T) {
 		router := gin.New()
 		router.Use(server.Middleware())
 
+		// Request for existing static file
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/logo.svg", nil)
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		assert.Contains(t, w.Header().Get("Content-Type"), "image/svg+xml")
+		assert.Empty(t, w.Header().Get("Cache-Control"))
+
 		entries, err := fs.ReadDir(server.distFS, "assets")
 		require.NoError(t, err)
 		fingerprintedPath := ""
@@ -792,6 +801,19 @@ func TestHasEmbeddedFrontend(t *testing.T) {
 
 // Tests for legacy ServeEmbeddedFrontend function
 func TestServeEmbeddedFrontend(t *testing.T) {
+	t.Run("serves_static_files", func(t *testing.T) {
+		middleware := ServeEmbeddedFrontend()
+
+		router := gin.New()
+		router.Use(middleware)
+
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/logo.svg", nil)
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		assert.Contains(t, w.Header().Get("Content-Type"), "image/svg+xml")
+	})
 
 	t.Run("serves_index_html_for_root", func(t *testing.T) {
 		middleware := ServeEmbeddedFrontend()
