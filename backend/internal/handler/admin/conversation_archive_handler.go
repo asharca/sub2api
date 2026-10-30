@@ -1,12 +1,40 @@
 package admin
 
 import (
+	"net/http"
+
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/gin-gonic/gin"
 )
 
 type createConversationArchiveRequest struct {
 	DeleteAfterBackup bool `json:"delete_after_backup"`
+}
+
+func (h *ConversationLogHandler) Export(c *gin.Context) {
+	filters, ok := parseConversationLogFilters(c)
+	if !ok {
+		return
+	}
+	if filters.StartTime != nil && filters.EndTime != nil && !filters.StartTime.Before(*filters.EndTime) {
+		response.BadRequest(c, "start_date must not be after end_date")
+		return
+	}
+	var req struct{}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	export, err := h.conversationLogService.ExportConversationLogs(c.Request.Context(), filters)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	defer func() { _ = export.Close() }()
+	c.DataFromReader(http.StatusOK, export.SizeBytes, "application/gzip", export.File, map[string]string{
+		"Content-Disposition": `attachment; filename="` + export.FileName + `"`,
+		"Cache-Control":       "no-store",
+	})
 }
 
 func (h *ConversationLogHandler) CreateArchive(c *gin.Context) {

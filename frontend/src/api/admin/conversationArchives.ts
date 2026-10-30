@@ -22,6 +22,26 @@ export const conversationArchivesAPI = {
     const { data } = await apiClient.get<{ items: ConversationArchive[] }>(base)
     return data.items || []
   },
+  async export(params: ConversationLogQueryParams) {
+    const response = await apiClient.post<Blob>('/admin/conversation-logs/export', {}, {
+      params,
+      responseType: 'blob',
+      timeout: 0
+    })
+    const disposition = String(response.headers['content-disposition'] || '')
+    const encodedName = /filename\*=UTF-8''([^;]+)/i.exec(disposition)?.[1]
+    let fileName = /filename="([^"]+)"/i.exec(disposition)?.[1]
+      || /filename=([^;\s]+)/i.exec(disposition)?.[1]
+      || `conversations_${Date.now()}.jsonl.gz`
+    if (encodedName) {
+      try {
+        fileName = decodeURIComponent(encodedName)
+      } catch {
+        // Use the plain filename if the encoded parameter is malformed.
+      }
+    }
+    return { blob: response.data, fileName }
+  },
   async create(params: ConversationLogQueryParams, deleteAfterBackup: boolean) {
     const { data } = await apiClient.post<ConversationArchive>(base, { delete_after_backup: deleteAfterBackup }, { params })
     return data

@@ -29,6 +29,77 @@ type ConversationArchiveRepository interface {
 	DeleteConversationArchiveIDs(context.Context, io.Reader) (int64, error)
 }
 
+// ConversationLogExport owns a completed temporary gzip file. Callers must close
+// it after sending the response, including when the client disconnects.
+type ConversationLogExport struct {
+	File      *os.File
+	FileName  string
+	SizeBytes int64
+}
+
+func (e *ConversationLogExport) Close() error {
+	return errors.Join(e.File.Close(), os.Remove(e.File.Name()))
+}
+
+// ExportConversationLogs uses the complete-row snapshot repository, never the
+// interactive preview API, and does not persist archive records or delete rows.
+func (s *ConversationLogService) ExportConversationLogs(ctx context.Context, filters ConversationLogFilters) (*ConversationLogExport, error) {
+	if s == nil {
+		return nil, infraerrors.InternalServer("CONVERSATION_EXPORT_UNAVAILABLE", "conversation storage is unavailable")
+	}
+	repo, ok := s.repo.(ConversationArchiveRepository)
+	if !ok {
+		return nil, infraerrors.InternalServer("CONVERSATION_EXPORT_UNAVAILABLE", "conversation storage does not support exports")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	file, err := os.CreateTemp("", "conversation-export-*.jsonl.gz")
+	if err != nil {
+		return nil, err
+	}
+	result := &ConversationLogExport{File: file}
+	completed := false
+	defer func() {
+		if !completed {
+			_ = result.Close()
+		}
+	}()
+	compressed := gzip.NewWriter(file)
+	newline := []byte{'\n'}
+	err = repo.StreamConversationArchive(ctx, filters, func(_ int64, raw json.RawMessage) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if _, err := compressed.Write(raw); err != nil {
+			return err
+		}
+		_, err := compressed.Write(newline)
+		return err
+	})
+	closeErr := compressed.Close()
+	if err != nil {
+		return nil, fmt.Errorf("snapshot conversations: %w", err)
+	}
+	if closeErr != nil {
+		return nil, closeErr
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	info, err := file.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		return nil, err
+	}
+	result.FileName = fmt.Sprintf("conversations_%s_%s.jsonl.gz", time.Now().UTC().Format("20060102_150405"), uuid.NewString())
+	result.SizeBytes = info.Size()
+	completed = true
+	return result, nil
+}
+
 type ConversationArchiveRecord struct {
 	ID                string         `json:"id"`
 	Status            string         `json:"status"`

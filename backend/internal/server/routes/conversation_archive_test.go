@@ -24,6 +24,7 @@ func TestConversationArchiveCreateAndDownloadRequireStepUp(t *testing.T) {
 	})
 	registerConversationLogRoutes(router.Group("/admin"), h, gate)
 	for _, req := range []struct{ method, path, body string }{
+		{http.MethodPost, "/admin/conversation-logs/export", `{}`},
 		{http.MethodPost, "/admin/conversation-logs/archives", `{}`},
 		{http.MethodPost, "/admin/conversation-logs/archives", `{"delete_after_backup":true}`},
 		{http.MethodGet, "/admin/conversation-logs/archives/archive-id/download", ""},
@@ -33,5 +34,5 @@ func TestConversationArchiveCreateAndDownloadRequireStepUp(t *testing.T) {
 		router.ServeHTTP(recorder, request)
 		require.Equal(t, http.StatusUnauthorized, recorder.Code)
 	}
-	require.Equal(t, 3, gateCalls)
+	require.Equal(t, 4, gateCalls)
 }

@@ -6,8 +6,9 @@
         <p class="mt-1 text-xs text-gray-500">{{ text('hint') }}</p>
       </div>
       <div class="flex flex-wrap gap-2">
-        <button type="button" class="btn btn-secondary btn-sm" :disabled="creating || disabled" @click="create(false)">{{ text('export') }}</button>
-        <button type="button" class="btn btn-danger btn-sm" :disabled="creating || disabled" @click="create(true)">{{ text('exportDelete') }}</button>
+        <button type="button" class="btn btn-primary btn-sm" :disabled="downloading || creating || disabled" @click="exportToBrowser()">{{ text(downloading ? 'downloading' : 'browserDownload') }}</button>
+        <button type="button" class="btn btn-secondary btn-sm" :disabled="creating || downloading || disabled" @click="create(false)">{{ text('export') }}</button>
+        <button type="button" class="btn btn-danger btn-sm" :disabled="creating || downloading || disabled" @click="create(true)">{{ text('exportDelete') }}</button>
         <button type="button" class="btn btn-secondary btn-sm" :disabled="loading" @click="refresh()">{{ t('common.refresh') }}</button>
       </div>
     </div>
@@ -44,10 +45,12 @@ const text = (key: string) => t(`admin.backup.conversationArchive.${key}`)
 const stepUp = useStepUp()
 const records = ref<ConversationArchive[]>([])
 const creating = ref(false)
+const downloading = ref(false)
 const loading = ref(false)
 const error = ref('')
 let disposed = false
 let timer: ReturnType<typeof setTimeout> | undefined
+const downloadURLs = new Map<string, ReturnType<typeof setTimeout>>()
 
 function report(err: unknown) {
   if (isStepUpCancelled(err)) return
@@ -74,9 +77,44 @@ async function refresh() {
   }
 }
 
-async function create(deleteAfterBackup: boolean) {
-  if (creating.value || props.disabled) return
+function currentFilters() {
   const { page: _page, page_size: _size, sort_by: _sort, sort_order: _order, ...filters } = props.getFilters()
+  return filters
+}
+
+async function exportToBrowser() {
+  if (downloading.value || creating.value || props.disabled || disposed) return
+  const filters = currentFilters()
+  downloading.value = true
+  error.value = ''
+  try {
+    const { blob, fileName } = await stepUp.run(() => conversationArchivesAPI.export(filters))
+    if (disposed) return
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    try {
+      link.href = url
+      link.download = fileName
+      document.body.appendChild(link)
+      link.click()
+    } finally {
+      link.remove()
+      // Give the browser time to accept the download before releasing its data.
+      downloadURLs.set(url, setTimeout(() => {
+        URL.revokeObjectURL(url)
+        downloadURLs.delete(url)
+      }, 60_000))
+    }
+  } catch (err) {
+    report(err)
+  } finally {
+    downloading.value = false
+  }
+}
+
+async function create(deleteAfterBackup: boolean) {
+  if (creating.value || downloading.value || props.disabled) return
+  const filters = currentFilters()
   if (deleteAfterBackup && !window.confirm(text('confirmDelete'))) return
   creating.value = true
   error.value = ''
@@ -107,5 +145,13 @@ async function download(id: string) {
 }
 
 onMounted(() => { void refresh() })
-onUnmounted(() => { disposed = true; clearTimeout(timer) })
+onUnmounted(() => {
+  disposed = true
+  clearTimeout(timer)
+  for (const [url, revokeTimer] of downloadURLs) {
+    clearTimeout(revokeTimer)
+    URL.revokeObjectURL(url)
+  }
+  downloadURLs.clear()
+})
 </script>

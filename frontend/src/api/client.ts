@@ -78,8 +78,20 @@ apiClient.interceptors.request.use(
 
 // ==================== Response Interceptor ====================
 
+async function decodeJSONBlob(data: unknown): Promise<unknown> {
+  if (typeof Blob !== 'undefined' && data instanceof Blob && /(?:application\/json|\+json)(?:;|$)/i.test(data.type)) {
+    try {
+      return JSON.parse(await data.text())
+    } catch {
+      // Preserve non-JSON responses for the normal error handling below.
+    }
+  }
+  return data
+}
+
 apiClient.interceptors.response.use(
-  (response: AxiosResponse) => {
+  async (response: AxiosResponse) => {
+    response.data = await decodeJSONBlob(response.data)
     // Unwrap standard API response format { code, message, data }
     const apiResponse = response.data as ApiResponse<unknown>
     if (apiResponse && typeof apiResponse === 'object' && 'code' in apiResponse) {
@@ -111,7 +123,8 @@ apiClient.interceptors.response.use(
 
     // Handle common errors
     if (error.response) {
-      const { status, data } = error.response
+      const status = error.response.status
+      const data = await decodeJSONBlob(error.response.data)
       const url = String(error.config?.url || '')
 
       // Validate `data` shape to avoid HTML error pages breaking our error handling.

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import axios from 'axios'
 import type { AxiosInstance } from 'axios'
+import { Blob as NodeBlob } from 'node:buffer'
 
 // 需要在导入 client 之前设置 mock
 vi.mock('@/i18n', () => ({
@@ -527,6 +528,30 @@ describe('API Client', () => {
       await expect(
         apiClient.get('/test', { cancelToken: source.token })
       ).rejects.toBeDefined()
+    })
+  })
+  describe('二进制下载响应', () => {
+    beforeEach(() => vi.stubGlobal('Blob', NodeBlob))
+    afterEach(() => vi.unstubAllGlobals())
+
+    it.each([200, 403])('HTTP %s 的 JSON Blob 保留二次验证标记', async (status) => {
+      const data = new NodeBlob([JSON.stringify({
+        code: 'STEP_UP_REQUIRED', message: 'Verify your identity', reason: 'STEP_UP_REQUIRED'
+      })], { type: 'application/json; charset=utf-8' })
+      const response = { status, data, headers: {}, config: {}, statusText: '' }
+      apiClient.defaults.adapter = status === 200
+        ? vi.fn().mockResolvedValue(response)
+        : vi.fn().mockRejectedValue({ response, config: { url: '/admin/conversation-logs/export' } })
+      await expect(apiClient.post('/admin/conversation-logs/export', {}, { responseType: 'blob' }))
+        .rejects.toMatchObject({ code: 'STEP_UP_REQUIRED', reason: 'STEP_UP_REQUIRED', message: 'Verify your identity' })
+    })
+
+    it('gzip 附件不被 JSON 解码或改变字节', async () => {
+      const bytes = new Uint8Array([0x1f, 0x8b, 8, 0, 255, 0])
+      const data = new NodeBlob([bytes], { type: 'application/gzip' })
+      apiClient.defaults.adapter = vi.fn().mockResolvedValue({ status: 200, data, headers: {}, config: {}, statusText: 'OK' })
+      const result = await apiClient.post('/admin/conversation-logs/export', {}, { responseType: 'blob' })
+      expect(new Uint8Array(await result.data.arrayBuffer())).toEqual(bytes)
     })
   })
 })

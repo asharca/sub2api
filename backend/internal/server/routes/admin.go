@@ -822,6 +822,7 @@ func registerConversationLogRoutes(admin *gin.RouterGroup, h *handler.Handlers, 
 	logs := admin.Group("/conversation-logs")
 	{
 		logs.GET("/stream", h.Admin.ConversationLog.Stream)
+		logs.POST("/export", gin.HandlerFunc(stepUpAuth), h.Admin.ConversationLog.Export)
 		logs.POST("/archives", gin.HandlerFunc(stepUpAuth), h.Admin.ConversationLog.CreateArchive)
 		logs.GET("/archives", h.Admin.ConversationLog.ListArchives)
 		logs.GET("/archives/:id", h.Admin.ConversationLog.GetArchive)
