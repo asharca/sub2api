@@ -120,7 +120,7 @@ func RegisterAdminRoutes(
 		registerUsageRoutes(admin, h)
 
 		// 对话记录管理
-		registerConversationLogRoutes(admin, h)
+		registerConversationLogRoutes(admin, h, stepUpAuth)
 
 		// 用户属性管理
 		registerUserAttributeRoutes(admin, h)
@@ -818,10 +818,14 @@ func registerUsageRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 	}
 }
 
-func registerConversationLogRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
+func registerConversationLogRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpAuth middleware.StepUpAuthMiddleware) {
 	logs := admin.Group("/conversation-logs")
 	{
 		logs.GET("/stream", h.Admin.ConversationLog.Stream)
+		logs.POST("/archives", gin.HandlerFunc(stepUpAuth), h.Admin.ConversationLog.CreateArchive)
+		logs.GET("/archives", h.Admin.ConversationLog.ListArchives)
+		logs.GET("/archives/:id", h.Admin.ConversationLog.GetArchive)
+		logs.GET("/archives/:id/download", gin.HandlerFunc(stepUpAuth), h.Admin.ConversationLog.GetArchiveDownloadURL)
 		logs.GET("", h.Admin.ConversationLog.List)
 		logs.GET("/:id", h.Admin.ConversationLog.GetByID)
 	}

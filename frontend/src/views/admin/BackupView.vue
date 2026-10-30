@@ -144,6 +144,10 @@
             <input v-model="scheduleForm.enabled" type="checkbox" />
             <span>{{ t('admin.backup.schedule.enabled') }}</span>
           </label>
+          <label class="inline-flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 md:col-span-2">
+            <input v-model="scheduleForm.include_conversation_logs" type="checkbox" />
+            <span>{{ t('admin.backup.includeConversations') }}</span>
+          </label>
           <div>
             <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.backup.schedule.cronExpr') }}</label>
             <input v-model="scheduleForm.cron_expr" class="input w-full" placeholder="0 2 * * *" />
@@ -187,6 +191,10 @@
             </p>
           </div>
           <div class="flex flex-wrap items-center gap-2">
+            <label class="inline-flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
+              <input v-model="manualIncludeConversations" type="checkbox" />
+              {{ t('admin.backup.includeConversations') }}
+            </label>
             <div class="flex items-center gap-1">
               <label class="text-xs text-gray-600 dark:text-gray-400">{{ t('admin.backup.operations.expireDays') }}</label>
               <input v-model.number="manualExpireDays" type="number" min="0" class="input w-20 text-xs" />
@@ -232,6 +240,7 @@
                   {{ record.file_name }}
                   <span v-if="record.monthly_archive" class="ml-1 inline-block rounded bg-primary-50 px-1.5 py-0.5 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300">{{ t('admin.backup.archive.badge') }}</span>
                   <div v-if="record.monthly_archive" class="mt-1 text-gray-500 dark:text-gray-400">{{ record.monthly_archive.dates.join(' / ') }}</div>
+                  <div class="mt-1 text-gray-500 dark:text-gray-400">{{ t(record.include_conversation_logs === false ? 'admin.backup.excludesConversations' : 'admin.backup.includesConversations') }}</div>
                 </td>
                 <td class="py-3 pr-4 text-xs">{{ formatSize(record.size_bytes) }}</td>
                 <td class="py-3 pr-4 text-xs">{{ record.parts?.length || (record.status === 'running' ? '-' : 1) }}</td>
@@ -485,6 +494,7 @@ const scheduleForm = ref<BackupScheduleConfig>({
   cron_expr: '0 2 * * *',
   retain_days: 14,
   retain_count: 10,
+  include_conversation_logs: true,
 })
 const savingSchedule = ref(false)
 const archiveForm = ref<BackupMonthlyArchiveConfig>({ enabled: false, days: [1], include_month_end: false, retain_count: 0 })
@@ -530,6 +540,7 @@ const loadingBackups = ref(false)
 const creatingBackup = ref(false)
 const restoringId = ref('')
 const manualExpireDays = ref(14)
+const manualIncludeConversations = ref(true)
 const downloadParts = ref<BackupDownloadPart[]>([])
 const downloadPartsModalOpen = ref(false)
 
@@ -760,6 +771,7 @@ async function loadSchedule() {
       cron_expr: cfg.cron_expr || '0 2 * * *',
       retain_days: cfg.retain_days ?? 14,
       retain_count: cfg.retain_count ?? 10,
+      include_conversation_logs: cfg.include_conversation_logs ?? true,
     }
     archiveForm.value = {
       enabled: cfg.monthly_archive?.enabled ?? false,
@@ -803,7 +815,7 @@ async function loadBackups() {
 async function createBackup() {
   creatingBackup.value = true
   try {
-    const record = await backupStepUp.run(() => adminAPI.backup.createBackup({ expire_days: manualExpireDays.value }))
+    const record = await backupStepUp.run(() => adminAPI.backup.createBackup({ expire_days: manualExpireDays.value, include_conversation_logs: manualIncludeConversations.value }))
     // 插入到列表顶部
     backups.value.unshift(record)
     startPolling(record.id)

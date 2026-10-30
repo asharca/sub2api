@@ -3,9 +3,11 @@ package repository
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os/exec"
 	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
@@ -57,7 +59,7 @@ func TestPgDumperHoldsMigrationLockThroughReaderClose(t *testing.T) {
 	mock = createdMock
 	expectBackupMigrationLock(mock)
 
-	reader, err := dumper.Dump(context.Background())
+	reader, err := dumper.Dump(context.Background(), true)
 	require.NoError(t, err)
 	require.True(t, commandCreated)
 	data, err := io.ReadAll(reader)
@@ -80,7 +82,7 @@ func TestPgDumperReleasesMigrationLockWhenStdoutPipeSetupFails(t *testing.T) {
 	expectBackupMigrationLock(mock)
 	expectBackupMigrationUnlock(mock)
 
-	reader, err := dumper.Dump(context.Background())
+	reader, err := dumper.Dump(context.Background(), true)
 	require.Nil(t, reader)
 	require.ErrorContains(t, err, "create stdout pipe")
 	require.NoError(t, mock.ExpectationsWereMet())
@@ -93,7 +95,7 @@ func TestPgDumperReleasesMigrationLockWhenProcessStartFails(t *testing.T) {
 	expectBackupMigrationLock(mock)
 	expectBackupMigrationUnlock(mock)
 
-	reader, err := dumper.Dump(context.Background())
+	reader, err := dumper.Dump(context.Background(), true)
 	require.Nil(t, reader)
 	require.ErrorContains(t, err, "start pg_dump")
 	require.NoError(t, mock.ExpectationsWereMet())
@@ -105,7 +107,7 @@ func TestPgDumperReleasesMigrationLockWhenProcessFails(t *testing.T) {
 	})
 	expectBackupMigrationLock(mock)
 
-	reader, err := dumper.Dump(context.Background())
+	reader, err := dumper.Dump(context.Background(), true)
 	require.NoError(t, err)
 	data, err := io.ReadAll(reader)
 	require.NoError(t, err)
@@ -121,7 +123,7 @@ func TestPgDumperReportsUnlockFailureAndDiscardsConnection(t *testing.T) {
 	})
 	expectBackupMigrationLock(mock)
 
-	reader, err := dumper.Dump(context.Background())
+	reader, err := dumper.Dump(context.Background(), true)
 	require.NoError(t, err)
 	_, err = io.ReadAll(reader)
 	require.NoError(t, err)
@@ -142,7 +144,7 @@ func TestPgDumperDoesNotStartProcessWhenMigrationLockFails(t *testing.T) {
 		WithArgs(migrationsAdvisoryLockID).
 		WillReturnError(errors.New("database unavailable"))
 
-	reader, err := dumper.Dump(context.Background())
+	reader, err := dumper.Dump(context.Background(), true)
 	require.Nil(t, reader)
 	require.ErrorContains(t, err, "acquire backup migration lock")
 	require.False(t, commandCreated)
@@ -151,7 +153,36 @@ func TestPgDumperDoesNotStartProcessWhenMigrationLockFails(t *testing.T) {
 
 func TestPgDumperRejectsNilDatabase(t *testing.T) {
 	dumper := &PgDumper{cfg: &config.DatabaseConfig{}}
-	reader, err := dumper.Dump(context.Background())
+	reader, err := dumper.Dump(context.Background(), true)
 	require.Nil(t, reader)
 	require.ErrorContains(t, err, "nil sql db")
+}
+
+func TestPgDumperConversationDataExclusionPreservesSchema(t *testing.T) {
+	for _, include := range []bool{true, false} {
+		t.Run(fmt.Sprintf("include=%t", include), func(t *testing.T) {
+			dumper, mock := newTestPgDumper(t, func(ctx context.Context, name string, args ...string) *exec.Cmd {
+				require.Equal(t, "pg_dump", name)
+				if include {
+					require.NotContains(t, args, "--exclude-table-data=public.conversation_logs")
+				} else {
+					require.Contains(t, args, "--exclude-table-data=public.conversation_logs")
+				}
+				for _, arg := range args {
+					require.False(t, strings.HasPrefix(arg, "--exclude-table="), "conversation schema must remain in the dump")
+				}
+				require.NotContains(t, args, "--data-only")
+				require.NotContains(t, args, "--schema-only")
+				return exec.CommandContext(ctx, "sh", "-c", "printf backup-data")
+			})
+			expectBackupMigrationLock(mock)
+			reader, err := dumper.Dump(context.Background(), include)
+			require.NoError(t, err)
+			_, err = io.ReadAll(reader)
+			require.NoError(t, err)
+			expectBackupMigrationUnlock(mock)
+			require.NoError(t, reader.Close())
+			require.NoError(t, mock.ExpectationsWereMet())
+		})
+	}
 }

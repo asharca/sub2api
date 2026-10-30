@@ -32,7 +32,7 @@ func NewPgDumper(cfg *config.Config, db *sql.DB) service.DBDumper {
 }
 
 // Dump executes pg_dump and returns a streaming reader of the output
-func (d *PgDumper) Dump(ctx context.Context) (io.ReadCloser, error) {
+func (d *PgDumper) Dump(ctx context.Context, includeConversationLogs bool) (io.ReadCloser, error) {
 	if d.db == nil {
 		return nil, errors.New("acquire backup migration lock: nil sql db")
 	}
@@ -59,6 +59,10 @@ func (d *PgDumper) Dump(ctx context.Context) (io.ReadCloser, error) {
 		"--no-acl",
 		"--clean",
 		"--if-exists",
+	}
+	if !includeConversationLogs {
+		// Keep the table, indexes and sequence so restored databases can capture new conversations.
+		args = append(args, "--exclude-table-data=public.conversation_logs")
 	}
 
 	commandContext := d.commandContext

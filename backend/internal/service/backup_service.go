@@ -74,7 +74,7 @@ var (
 
 // DBDumper abstracts database dump/restore operations
 type DBDumper interface {
-	Dump(ctx context.Context) (io.ReadCloser, error)
+	Dump(ctx context.Context, includeConversationLogs bool) (io.ReadCloser, error)
 	Restore(ctx context.Context, data io.Reader) error
 }
 
@@ -111,33 +111,57 @@ func (c *BackupS3Config) IsConfigured() bool {
 
 // BackupScheduleConfig 定时备份配置
 type BackupScheduleConfig struct {
-	Enabled        bool                        `json:"enabled"`
-	CronExpr       string                      `json:"cron_expr"`    // cron 表达式，如 "0 2 * * *" 每天凌晨2点
-	RetainDays     int                         `json:"retain_days"`  // 备份文件过期天数，默认14，0=不自动清理
-	RetainCount    int                         `json:"retain_count"` // 最多保留份数，0=不限制
-	MonthlyArchive *BackupMonthlyArchiveConfig `json:"monthly_archive,omitempty"`
+	Enabled                 bool                        `json:"enabled"`
+	CronExpr                string                      `json:"cron_expr"`    // cron 表达式，如 "0 2 * * *" 每天凌晨2点
+	RetainDays              int                         `json:"retain_days"`  // 备份文件过期天数，默认14，0=不自动清理
+	RetainCount             int                         `json:"retain_count"` // 最多保留份数，0=不限制
+	MonthlyArchive          *BackupMonthlyArchiveConfig `json:"monthly_archive,omitempty"`
+	IncludeConversationLogs bool                        `json:"include_conversation_logs"`
+}
+
+// UnmarshalJSON preserves full backups for schedules saved before the inclusion option existed.
+func (c *BackupScheduleConfig) UnmarshalJSON(data []byte) error {
+	type schedule BackupScheduleConfig
+	value := schedule{IncludeConversationLogs: true}
+	if err := json.Unmarshal(data, &value); err != nil {
+		return err
+	}
+	*c = BackupScheduleConfig(value)
+	return nil
 }
 
 // BackupRecord 备份记录
 type BackupRecord struct {
-	ID               string                `json:"id"`
-	Status           string                `json:"status"`      // pending, running, completed, failed
-	BackupType       string                `json:"backup_type"` // postgres
-	FileName         string                `json:"file_name"`
-	S3Key            string                `json:"s3_key"`
-	Parts            []BackupPart          `json:"parts,omitempty"`
-	SizeBytes        int64                 `json:"size_bytes"`
-	TriggeredBy      string                `json:"triggered_by"` // manual, scheduled
-	ErrorMsg         string                `json:"error_message,omitempty"`
-	StartedAt        string                `json:"started_at"`
-	FinishedAt       string                `json:"finished_at,omitempty"`
-	ExpiresAt        string                `json:"expires_at,omitempty"`     // 过期时间
-	Progress         string                `json:"progress,omitempty"`       // "dumping", "uploading", ""
-	RestoreStatus    string                `json:"restore_status,omitempty"` // "", "running", "completed", "failed"
-	RestoreStartedAt string                `json:"restore_started_at,omitempty"`
-	RestoreError     string                `json:"restore_error,omitempty"`
-	RestoredAt       string                `json:"restored_at,omitempty"`
-	MonthlyArchive   *BackupMonthlyArchive `json:"monthly_archive,omitempty"`
+	ID                      string                `json:"id"`
+	Status                  string                `json:"status"`      // pending, running, completed, failed
+	BackupType              string                `json:"backup_type"` // postgres
+	FileName                string                `json:"file_name"`
+	S3Key                   string                `json:"s3_key"`
+	Parts                   []BackupPart          `json:"parts,omitempty"`
+	SizeBytes               int64                 `json:"size_bytes"`
+	TriggeredBy             string                `json:"triggered_by"` // manual, scheduled
+	ErrorMsg                string                `json:"error_message,omitempty"`
+	StartedAt               string                `json:"started_at"`
+	FinishedAt              string                `json:"finished_at,omitempty"`
+	ExpiresAt               string                `json:"expires_at,omitempty"`     // 过期时间
+	Progress                string                `json:"progress,omitempty"`       // "dumping", "uploading", ""
+	RestoreStatus           string                `json:"restore_status,omitempty"` // "", "running", "completed", "failed"
+	RestoreStartedAt        string                `json:"restore_started_at,omitempty"`
+	RestoreError            string                `json:"restore_error,omitempty"`
+	RestoredAt              string                `json:"restored_at,omitempty"`
+	MonthlyArchive          *BackupMonthlyArchive `json:"monthly_archive,omitempty"`
+	IncludeConversationLogs bool                  `json:"include_conversation_logs"`
+}
+
+// UnmarshalJSON treats historical database backups as including conversation data.
+func (r *BackupRecord) UnmarshalJSON(data []byte) error {
+	type record BackupRecord
+	value := record{IncludeConversationLogs: true}
+	if err := json.Unmarshal(data, &value); err != nil {
+		return err
+	}
+	*r = BackupRecord(value)
+	return nil
 }
 
 // BackupDownloadPart 描述一个可下载的备份分卷。
@@ -464,7 +488,7 @@ func (s *BackupService) GetSchedule(ctx context.Context) (*BackupScheduleConfig,
 		return nil, fmt.Errorf("load backup schedule: %w", err)
 	}
 	if raw == "" {
-		return &BackupScheduleConfig{RetainDays: 14, RetainCount: 10}, nil
+		return &BackupScheduleConfig{RetainDays: 14, RetainCount: 10, IncludeConversationLogs: true}, nil
 	}
 	var cfg BackupScheduleConfig
 	if err := json.Unmarshal([]byte(raw), &cfg); err != nil {
@@ -572,7 +596,7 @@ func (s *BackupService) runScheduledBackup() {
 	}
 
 	logger.LegacyPrintf("service.backup", "[Backup] 开始执行定时备份, 过期天数: %d", expireDays)
-	record, err := s.createBackup(ctx, "scheduled", expireDays, schedule)
+	record, err := s.createBackup(ctx, "scheduled", expireDays, schedule.IncludeConversationLogs, schedule)
 	if err != nil {
 		if errors.Is(err, ErrBackupInProgress) {
 			logger.LegacyPrintf("service.backup", "[Backup] 定时备份跳过: 已有备份正在进行中")
@@ -596,11 +620,11 @@ func (s *BackupService) runScheduledBackup() {
 
 // CreateBackup 创建全量数据库备份并上传到 S3。
 // expireDays: 备份过期天数，0=永不过期，默认14天
-func (s *BackupService) CreateBackup(ctx context.Context, triggeredBy string, expireDays int) (*BackupRecord, error) {
-	return s.createBackup(ctx, triggeredBy, expireDays, nil)
+func (s *BackupService) CreateBackup(ctx context.Context, triggeredBy string, expireDays int, includeConversationLogs bool) (*BackupRecord, error) {
+	return s.createBackup(ctx, triggeredBy, expireDays, includeConversationLogs, nil)
 }
 
-func (s *BackupService) createBackup(ctx context.Context, triggeredBy string, expireDays int, schedule *BackupScheduleConfig) (*BackupRecord, error) {
+func (s *BackupService) createBackup(ctx context.Context, triggeredBy string, expireDays int, includeConversationLogs bool, schedule *BackupScheduleConfig) (*BackupRecord, error) {
 	if s.shuttingDown.Load() {
 		return nil, infraerrors.ServiceUnavailable("SERVER_SHUTTING_DOWN", "server is shutting down")
 	}
@@ -642,17 +666,18 @@ func (s *BackupService) createBackup(ctx context.Context, triggeredBy string, ex
 	}
 
 	record := &BackupRecord{
-		ID:          backupID,
-		Status:      "running",
-		BackupType:  "postgres",
-		FileName:    fileName,
-		S3Key:       s3Key,
-		TriggeredBy: triggeredBy,
-		StartedAt:   now.Format(time.RFC3339),
-		ExpiresAt:   expiresAt,
+		ID:                      backupID,
+		Status:                  "running",
+		BackupType:              "postgres",
+		FileName:                fileName,
+		S3Key:                   s3Key,
+		TriggeredBy:             triggeredBy,
+		StartedAt:               now.Format(time.RFC3339),
+		ExpiresAt:               expiresAt,
+		IncludeConversationLogs: includeConversationLogs,
 	}
 
-	archivePath, sizeBytes, err := s.createCompressedBackupFile(ctx)
+	archivePath, sizeBytes, err := s.createCompressedBackupFile(ctx, record.IncludeConversationLogs)
 	if err != nil {
 		record.Status = "failed"
 		record.ErrorMsg = err.Error()
@@ -683,7 +708,7 @@ func (s *BackupService) createBackup(ctx context.Context, triggeredBy string, ex
 }
 
 // StartBackup 异步创建备份，立即返回 running 状态的记录
-func (s *BackupService) StartBackup(ctx context.Context, triggeredBy string, expireDays int) (*BackupRecord, error) {
+func (s *BackupService) StartBackup(ctx context.Context, triggeredBy string, expireDays int, includeConversationLogs bool) (*BackupRecord, error) {
 	if s.shuttingDown.Load() {
 		return nil, infraerrors.ServiceUnavailable("SERVER_SHUTTING_DOWN", "server is shutting down")
 	}
@@ -731,15 +756,16 @@ func (s *BackupService) StartBackup(ctx context.Context, triggeredBy string, exp
 	}
 
 	record := &BackupRecord{
-		ID:          backupID,
-		Status:      "running",
-		BackupType:  "postgres",
-		FileName:    fileName,
-		S3Key:       s3Key,
-		TriggeredBy: triggeredBy,
-		StartedAt:   now.Format(time.RFC3339),
-		ExpiresAt:   expiresAt,
-		Progress:    "pending",
+		ID:                      backupID,
+		Status:                  "running",
+		BackupType:              "postgres",
+		FileName:                fileName,
+		S3Key:                   s3Key,
+		TriggeredBy:             triggeredBy,
+		StartedAt:               now.Format(time.RFC3339),
+		ExpiresAt:               expiresAt,
+		Progress:                "pending",
+		IncludeConversationLogs: includeConversationLogs,
 	}
 
 	if err := s.saveRecord(ctx, record); err != nil {
@@ -782,7 +808,7 @@ func (s *BackupService) executeBackup(record *BackupRecord, objectStore BackupOb
 	// 阶段1: pg_dump -> gzip 临时文件
 	record.Progress = "dumping"
 	_ = s.saveRecord(ctx, record)
-	archivePath, sizeBytes, err := s.createCompressedBackupFile(ctx)
+	archivePath, sizeBytes, err := s.createCompressedBackupFile(ctx, record.IncludeConversationLogs)
 	if err != nil {
 		record.Status = "failed"
 		record.ErrorMsg = err.Error()
@@ -815,8 +841,8 @@ func (s *BackupService) executeBackup(record *BackupRecord, objectStore BackupOb
 	}
 }
 
-func (s *BackupService) createCompressedBackupFile(ctx context.Context) (string, int64, error) {
-	dumpReader, err := s.dumper.Dump(ctx)
+func (s *BackupService) createCompressedBackupFile(ctx context.Context, includeConversationLogs bool) (string, int64, error) {
+	dumpReader, err := s.dumper.Dump(ctx, includeConversationLogs)
 	if err != nil {
 		return "", 0, fmt.Errorf("pg_dump: %w", err)
 	}

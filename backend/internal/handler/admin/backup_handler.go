@@ -1,6 +1,9 @@
 package admin
 
 import (
+	"errors"
+	"io"
+
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -88,19 +91,27 @@ func (h *BackupHandler) UpdateSchedule(c *gin.Context) {
 // ─── 备份操作 ───
 
 type CreateBackupRequest struct {
-	ExpireDays *int `json:"expire_days"` // nil=使用默认值14，0=永不过期
+	ExpireDays              *int  `json:"expire_days"`               // nil=使用默认值14，0=永不过期
+	IncludeConversationLogs *bool `json:"include_conversation_logs"` // nil=包含会话数据
 }
 
 func (h *BackupHandler) CreateBackup(c *gin.Context) {
 	var req CreateBackupRequest
-	_ = c.ShouldBindJSON(&req) // 允许空 body
+	if err := c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
 
 	expireDays := 14 // 默认14天过期
 	if req.ExpireDays != nil {
 		expireDays = *req.ExpireDays
 	}
 
-	record, err := h.backupService.StartBackup(c.Request.Context(), "manual", expireDays)
+	includeConversationLogs := true
+	if req.IncludeConversationLogs != nil {
+		includeConversationLogs = *req.IncludeConversationLogs
+	}
+	record, err := h.backupService.StartBackup(c.Request.Context(), "manual", expireDays, includeConversationLogs)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return

@@ -118,13 +118,15 @@ func (e *plainEncryptor) Decrypt(ciphertext string) (string, error) {
 }
 
 type mockDumper struct {
-	dumpData []byte
-	dumpErr  error
-	restored []byte
-	restErr  error
+	dumpData                []byte
+	dumpErr                 error
+	restored                []byte
+	restErr                 error
+	includeConversationLogs bool
 }
 
-func (m *mockDumper) Dump(_ context.Context) (io.ReadCloser, error) {
+func (m *mockDumper) Dump(_ context.Context, includeConversationLogs bool) (io.ReadCloser, error) {
+	m.includeConversationLogs = includeConversationLogs
 	if m.dumpErr != nil {
 		return nil, m.dumpErr
 	}
@@ -150,7 +152,7 @@ type blockingDumper struct {
 	restErr error
 }
 
-func (d *blockingDumper) Dump(ctx context.Context) (io.ReadCloser, error) {
+func (d *blockingDumper) Dump(ctx context.Context, _ bool) (io.ReadCloser, error) {
 	select {
 	case <-d.blockCh:
 	case <-ctx.Done():
@@ -508,7 +510,7 @@ func TestBackupService_CreateBackup_Streaming(t *testing.T) {
 	store := newMockObjectStore()
 	svc := newTestBackupService(repo, dumper, store)
 
-	record, err := svc.CreateBackup(context.Background(), "manual", 14)
+	record, err := svc.CreateBackup(context.Background(), "manual", 14, true)
 	require.NoError(t, err)
 	require.Equal(t, "completed", record.Status)
 	require.Greater(t, record.SizeBytes, int64(0))
@@ -529,7 +531,7 @@ func TestBackupService_CreateBackup_SplitsCompressedArchive(t *testing.T) {
 	svc := newTestBackupService(repo, dumper, store)
 	svc.partSizeBytes = 32
 
-	record, err := svc.CreateBackup(context.Background(), "manual", 14)
+	record, err := svc.CreateBackup(context.Background(), "manual", 14, true)
 	require.NoError(t, err)
 	require.Equal(t, "completed", record.Status)
 	require.Greater(t, len(record.Parts), 1)
@@ -560,7 +562,7 @@ func TestBackupService_StartBackup_SplitsCompressedArchive(t *testing.T) {
 	svc := newTestBackupService(repo, &mockDumper{dumpData: entropyBackupFixture(512)}, store)
 	svc.partSizeBytes = 32
 
-	record, err := svc.StartBackup(context.Background(), "manual", 14)
+	record, err := svc.StartBackup(context.Background(), "manual", 14, true)
 	require.NoError(t, err)
 	svc.wg.Wait()
 
@@ -579,7 +581,7 @@ func TestBackupService_StartBackup_UploadFailureCleansUploadedParts(t *testing.T
 	svc := newTestBackupService(repo, &mockDumper{dumpData: entropyBackupFixture(512)}, store)
 	svc.partSizeBytes = 32
 
-	record, err := svc.StartBackup(context.Background(), "manual", 14)
+	record, err := svc.StartBackup(context.Background(), "manual", 14, true)
 	require.NoError(t, err)
 	svc.wg.Wait()
 
@@ -644,7 +646,7 @@ func TestBackupService_CreateBackup_DumpFailure(t *testing.T) {
 	store := newMockObjectStore()
 	svc := newTestBackupService(repo, dumper, store)
 
-	record, err := svc.CreateBackup(context.Background(), "manual", 14)
+	record, err := svc.CreateBackup(context.Background(), "manual", 14, true)
 	require.Error(t, err)
 	require.Equal(t, "failed", record.Status)
 	require.Contains(t, record.ErrorMsg, "pg_dump")
@@ -654,7 +656,7 @@ func TestBackupService_CreateBackup_NoS3Config(t *testing.T) {
 	repo := newMockSettingRepo()
 	svc := newTestBackupService(repo, &mockDumper{}, newMockObjectStore())
 
-	_, err := svc.CreateBackup(context.Background(), "manual", 14)
+	_, err := svc.CreateBackup(context.Background(), "manual", 14, true)
 	require.ErrorIs(t, err, ErrBackupS3NotConfigured)
 }
 
@@ -672,7 +674,7 @@ func TestBackupService_CreateBackup_ConcurrentBlocked(t *testing.T) {
 	svc.backingUp = true
 	svc.opMu.Unlock()
 
-	_, err := svc.CreateBackup(context.Background(), "manual", 14)
+	_, err := svc.CreateBackup(context.Background(), "manual", 14, true)
 	require.ErrorIs(t, err, ErrBackupInProgress)
 }
 
@@ -736,7 +738,7 @@ func TestBackupService_RestoreBackup_Streaming(t *testing.T) {
 	svc := newTestBackupService(repo, dumper, store)
 
 	// 先创建一个备份
-	record, err := svc.CreateBackup(context.Background(), "manual", 14)
+	record, err := svc.CreateBackup(context.Background(), "manual", 14, true)
 	require.NoError(t, err)
 
 	// 恢复
@@ -888,7 +890,7 @@ func TestBackupService_DeleteBackup(t *testing.T) {
 	store := newMockObjectStore()
 	svc := newTestBackupService(repo, dumper, store)
 
-	record, err := svc.CreateBackup(context.Background(), "manual", 14)
+	record, err := svc.CreateBackup(context.Background(), "manual", 14, true)
 	require.NoError(t, err)
 
 	// S3 中应有文件
@@ -946,7 +948,7 @@ func TestBackupService_GetDownloadURL(t *testing.T) {
 	store := newMockObjectStore()
 	svc := newTestBackupService(repo, dumper, store)
 
-	record, err := svc.CreateBackup(context.Background(), "manual", 14)
+	record, err := svc.CreateBackup(context.Background(), "manual", 14, true)
 	require.NoError(t, err)
 
 	download, err := svc.GetBackupDownloadURL(context.Background(), record.ID)
@@ -1133,7 +1135,7 @@ func TestStartBackup_ReturnsImmediately(t *testing.T) {
 	store := newMockObjectStore()
 	svc := newTestBackupService(repo, dumper, store)
 
-	record, err := svc.StartBackup(context.Background(), "manual", 14)
+	record, err := svc.StartBackup(context.Background(), "manual", 14, true)
 	require.NoError(t, err)
 	require.Equal(t, "running", record.Status)
 	require.NotEmpty(t, record.ID)
@@ -1158,11 +1160,11 @@ func TestStartBackup_ConcurrentBlocked(t *testing.T) {
 	svc := newTestBackupService(repo, dumper, store)
 
 	// 第一次启动
-	_, err := svc.StartBackup(context.Background(), "manual", 14)
+	_, err := svc.StartBackup(context.Background(), "manual", 14, true)
 	require.NoError(t, err)
 
 	// 第二次应被阻塞
-	_, err = svc.StartBackup(context.Background(), "manual", 14)
+	_, err = svc.StartBackup(context.Background(), "manual", 14, true)
 	require.ErrorIs(t, err, ErrBackupInProgress)
 
 	close(dumper.blockCh)
@@ -1176,7 +1178,7 @@ func TestStartBackup_ShuttingDown(t *testing.T) {
 
 	svc.shuttingDown.Store(true)
 
-	_, err := svc.StartBackup(context.Background(), "manual", 14)
+	_, err := svc.StartBackup(context.Background(), "manual", 14, true)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "shutting down")
 }
@@ -1278,7 +1280,7 @@ func TestGracefulShutdown(t *testing.T) {
 	store := newMockObjectStore()
 	svc := newTestBackupService(repo, dumper, store)
 
-	_, err := svc.StartBackup(context.Background(), "manual", 14)
+	_, err := svc.StartBackup(context.Background(), "manual", 14, true)
 	require.NoError(t, err)
 
 	// Stop 应该等待备份完成
@@ -1318,7 +1320,7 @@ func TestStartRestore_Async(t *testing.T) {
 	svc := newTestBackupService(repo, dumper, store)
 
 	// 先创建一个备份（同步方式）
-	record, err := svc.CreateBackup(context.Background(), "manual", 14)
+	record, err := svc.CreateBackup(context.Background(), "manual", 14, true)
 	require.NoError(t, err)
 
 	// 异步恢复
@@ -1367,4 +1369,86 @@ func TestBackupService_StartRestore_SplitParts(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "completed", final.RestoreStatus)
 	require.Equal(t, dumpContent, dumper.restored)
+}
+
+func TestBackupService_ConversationInclusionManual(t *testing.T) {
+	for _, include := range []bool{true, false} {
+		for _, async := range []bool{true, false} {
+			t.Run(fmt.Sprintf("include=%t/async=%t", include, async), func(t *testing.T) {
+				repo := newMockSettingRepo()
+				seedS3Config(t, repo)
+				dumper := &mockDumper{dumpData: []byte("-- database dump\n")}
+				svc := newTestBackupService(repo, dumper, newMockObjectStore())
+				var record *BackupRecord
+				var err error
+				if async {
+					record, err = svc.StartBackup(context.Background(), "manual", 14, include)
+				} else {
+					record, err = svc.CreateBackup(context.Background(), "manual", 14, include)
+				}
+				require.NoError(t, err)
+				require.Equal(t, include, record.IncludeConversationLogs)
+				svc.wg.Wait()
+				require.Equal(t, include, dumper.includeConversationLogs)
+				stored, err := svc.GetBackupRecord(context.Background(), record.ID)
+				require.NoError(t, err)
+				require.Equal(t, "completed", stored.Status)
+				require.Equal(t, include, stored.IncludeConversationLogs)
+			})
+		}
+	}
+}
+
+func TestBackupService_ConversationInclusionSchedule(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		raw     string
+		include bool
+	}{
+		{name: "default", include: true},
+		{name: "legacy", raw: `{"retain_days":14}`, include: true},
+		{name: "null", raw: `{"include_conversation_logs":null}`, include: true},
+		{name: "include", raw: `{"include_conversation_logs":true}`, include: true},
+		{name: "exclude", raw: `{"include_conversation_logs":false}`, include: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := newMockSettingRepo()
+			seedS3Config(t, repo)
+			require.NoError(t, repo.Set(context.Background(), settingKeyBackupSchedule, tc.raw))
+			dumper := &mockDumper{dumpData: []byte("-- scheduled dump\n")}
+			svc := newTestBackupService(repo, dumper, newMockObjectStore())
+			cfg, err := svc.GetSchedule(context.Background())
+			require.NoError(t, err)
+			require.Equal(t, tc.include, cfg.IncludeConversationLogs)
+			saved, err := svc.UpdateSchedule(context.Background(), *cfg)
+			require.NoError(t, err)
+			require.Equal(t, tc.include, saved.IncludeConversationLogs)
+			loaded, err := svc.GetSchedule(context.Background())
+			require.NoError(t, err)
+			require.Equal(t, tc.include, loaded.IncludeConversationLogs)
+			svc.runScheduledBackup()
+			require.Equal(t, tc.include, dumper.includeConversationLogs)
+			records, err := svc.ListBackups(context.Background())
+			require.NoError(t, err)
+			require.Len(t, records, 1)
+			require.Equal(t, "completed", records[0].Status)
+			require.Equal(t, tc.include, records[0].IncludeConversationLogs)
+		})
+	}
+}
+
+func TestBackupService_ConversationInclusionLegacyMetadata(t *testing.T) {
+	repo := newMockSettingRepo()
+	require.NoError(t, repo.Set(context.Background(), settingKeyBackupRecords,
+		`[{"id":"legacy","status":"completed"},{"id":"included","include_conversation_logs":true},{"id":"excluded","include_conversation_logs":false}]`))
+	svc := newTestBackupService(repo, &mockDumper{}, newMockObjectStore())
+	for id, include := range map[string]bool{"legacy": true, "included": true, "excluded": false} {
+		record, err := svc.GetBackupRecord(context.Background(), id)
+		require.NoError(t, err)
+		require.Equal(t, include, record.IncludeConversationLogs)
+		data, err := json.Marshal(record)
+		require.NoError(t, err)
+		require.Contains(t, string(data), fmt.Sprintf(`"include_conversation_logs":%t`, include))
+		require.NoError(t, svc.saveRecord(context.Background(), record))
+	}
 }

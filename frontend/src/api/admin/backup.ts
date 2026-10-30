@@ -15,6 +15,7 @@ export interface BackupScheduleConfig {
   cron_expr: string
   retain_days: number
   retain_count: number
+  include_conversation_logs?: boolean
   monthly_archive?: BackupMonthlyArchiveConfig
 }
 
@@ -49,6 +50,7 @@ export interface BackupRecord {
   restore_error?: string
   restored_at?: string
   monthly_archive?: BackupMonthlyArchive
+  include_conversation_logs?: boolean
 }
 
 export interface BackupPart {
@@ -71,6 +73,7 @@ export interface BackupDownloadResponse {
 
 export interface CreateBackupRequest {
   expire_days?: number
+  include_conversation_logs?: boolean
 }
 
 export interface TestS3Response {

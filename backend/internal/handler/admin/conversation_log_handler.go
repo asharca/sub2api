@@ -16,10 +16,11 @@ import (
 
 type ConversationLogHandler struct {
 	conversationLogService *service.ConversationLogService
+	backupService          *service.BackupService
 }
 
-func NewConversationLogHandler(conversationLogService *service.ConversationLogService) *ConversationLogHandler {
-	return &ConversationLogHandler{conversationLogService: conversationLogService}
+func NewConversationLogHandler(conversationLogService *service.ConversationLogService, backupService *service.BackupService) *ConversationLogHandler {
+	return &ConversationLogHandler{conversationLogService: conversationLogService, backupService: backupService}
 }
 
 type conversationLogResponse struct {

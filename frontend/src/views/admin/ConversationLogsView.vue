@@ -70,6 +70,7 @@
               </button>
             </template>
           </UsageFilters>
+          <ConversationArchivePanel v-if="isAdminView" :get-filters="buildQueryParams" :disabled="isSeedPreview" @cleaned="loadLogs()" />
 
           <div v-else class="flex flex-wrap items-end gap-4">
             <div class="w-full sm:w-auto sm:min-w-[280px]">
@@ -404,6 +405,7 @@ import DateRangePicker from '@/components/common/DateRangePicker.vue'
 import Select from '@/components/common/Select.vue'
 import Icon from '@/components/icons/Icon.vue'
 import ConversationTimeline from '@/components/admin/ConversationTimeline.vue'
+import ConversationArchivePanel from '@/components/admin/ConversationArchivePanel.vue'
 import UsageFilters from '@/components/admin/usage/UsageFilters.vue'
 import { useAppStore } from '@/stores/app'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
