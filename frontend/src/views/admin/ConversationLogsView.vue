@@ -58,6 +58,7 @@
             </template>
 
             <template #before-actions>
+              <ConversationArchivePanel :get-filters="buildQueryParams" :disabled="isSeedPreview" @cleaned="loadLogs()" />
               <button
                 type="button"
                 class="btn btn-secondary"
@@ -70,7 +71,6 @@
               </button>
             </template>
           </UsageFilters>
-          <ConversationArchivePanel v-if="isAdminView" :get-filters="buildQueryParams" :disabled="isSeedPreview" @cleaned="loadLogs()" />
 
           <div v-else class="flex flex-wrap items-end gap-4">
             <div class="w-full sm:w-auto sm:min-w-[280px]">
@@ -478,7 +478,6 @@ const filters = reactive<{
   model: string | null
   user_id?: number
   api_key_id?: number
-  account_id?: number
   group_id?: number
   upstream_model_mismatch: boolean | null
   platform: string | null
@@ -590,7 +589,6 @@ async function loadModelOptions() {
       ? await adminAPI.dashboard.getModelStats({
         ...params,
         user_id: filters.user_id,
-        account_id: filters.account_id,
         upstream_model_mismatch: filters.upstream_model_mismatch === null ? undefined : filters.upstream_model_mismatch
       })
       : await usageAPI.getDashboardModels(params)
@@ -757,7 +755,6 @@ function buildQueryParams(): ConversationLogQueryParams {
   if (model) params.model = model
   if (filters.user_id) params.user_id = filters.user_id
   if (filters.api_key_id) params.api_key_id = filters.api_key_id
-  if (filters.account_id) params.account_id = filters.account_id
   if (filters.group_id) params.group_id = filters.group_id
   if (filters.upstream_model_mismatch !== null) params.upstream_model_mismatch = filters.upstream_model_mismatch
   if (filters.platform) params.platform = filters.platform
@@ -787,7 +784,6 @@ function resetFilters() {
   filters.model = null
   filters.user_id = undefined
   filters.api_key_id = undefined
-  filters.account_id = undefined
   filters.group_id = undefined
   filters.upstream_model_mismatch = null
   filters.platform = null
@@ -879,7 +875,6 @@ function matchesSeedFilters(row: ConversationLog) {
   }
   if (filters.user_id && row.user_id !== filters.user_id) return false
   if (filters.api_key_id && row.api_key_id !== filters.api_key_id) return false
-  if (filters.account_id && row.account_id !== filters.account_id) return false
   if (filters.group_id && row.group_id !== filters.group_id) return false
   if (filters.upstream_model_mismatch !== null && hasUpstreamModelMismatch(row) !== filters.upstream_model_mismatch) return false
   if (filters.platform && row.platform !== filters.platform) return false

@@ -46,6 +46,13 @@ export const conversationArchivesAPI = {
     const { data } = await apiClient.post<ConversationArchive>(base, { delete_after_backup: deleteAfterBackup }, { params })
     return data
   },
+  async retry(id: string) {
+    const { data } = await apiClient.post<ConversationArchive>(`${base}/${encodeURIComponent(id)}/retry`, {})
+    return data
+  },
+  async remove(id: string) {
+    await apiClient.delete(`${base}/${encodeURIComponent(id)}`)
+  },
   async download(id: string) {
     const { data } = await apiClient.get<{ url: string }>(`${base}/${encodeURIComponent(id)}/download`)
     return data.url

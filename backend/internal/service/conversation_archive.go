@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
@@ -129,7 +130,59 @@ func conversationArchiveFilters(f ConversationLogFilters) map[string]any {
 	}
 }
 
+// Stored archive filters use start_time/end_time, not the HTTP date query keys.
+func restoreConversationArchiveFilters(stored map[string]any) (ConversationLogFilters, error) {
+	var f ConversationLogFilters
+	if stored == nil {
+		return f, infraerrors.BadRequest("CONVERSATION_ARCHIVE_FILTERS_INVALID", "conversation archive filters are missing")
+	}
+	data, err := json.Marshal(stored)
+	if err != nil {
+		return f, infraerrors.BadRequest("CONVERSATION_ARCHIVE_FILTERS_INVALID", "conversation archive filters are invalid")
+	}
+	var fields struct {
+		Search                string     `json:"q"`
+		UserID                int64      `json:"user_id"`
+		APIKeyID              int64      `json:"api_key_id"`
+		AccountID             int64      `json:"account_id"`
+		GroupID               int64      `json:"group_id"`
+		Platform              string     `json:"platform"`
+		Model                 string     `json:"model"`
+		RequestID             string     `json:"request_id"`
+		ResponseID            string     `json:"response_id"`
+		RequestType           *int16     `json:"request_type"`
+		Stream                *bool      `json:"stream"`
+		UpstreamModelMismatch *bool      `json:"upstream_model_mismatch"`
+		StartTime             *time.Time `json:"start_time"`
+		EndTime               *time.Time `json:"end_time"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return f, infraerrors.BadRequest("CONVERSATION_ARCHIVE_FILTERS_INVALID", "conversation archive filters are invalid")
+	}
+	return ConversationLogFilters{
+		Search: fields.Search, UserID: fields.UserID, APIKeyID: fields.APIKeyID,
+		AccountID: fields.AccountID, GroupID: fields.GroupID, Platform: fields.Platform,
+		Model: fields.Model, RequestID: fields.RequestID, ResponseID: fields.ResponseID,
+		RequestType: fields.RequestType, Stream: fields.Stream,
+		UpstreamModelMismatch: fields.UpstreamModelMismatch,
+		StartTime:             fields.StartTime, EndTime: fields.EndTime,
+	}, nil
+}
+
 func (s *BackupService) StartConversationArchive(ctx context.Context, logs *ConversationLogService, filters ConversationLogFilters, deleteAfterBackup bool) (*ConversationArchiveRecord, error) {
+	return s.startConversationArchive(ctx, logs, filters, deleteAfterBackup, "")
+}
+
+// RetryConversationArchive creates a fresh snapshot; no local upload files survive
+// a failed job. The original failed record remains unchanged.
+func (s *BackupService) RetryConversationArchive(ctx context.Context, logs *ConversationLogService, id string) (*ConversationArchiveRecord, error) {
+	if id == "" {
+		return nil, ErrBackupNotFound
+	}
+	return s.startConversationArchive(ctx, logs, ConversationLogFilters{}, false, id)
+}
+
+func (s *BackupService) startConversationArchive(ctx context.Context, logs *ConversationLogService, filters ConversationLogFilters, deleteAfterBackup bool, retryID string) (*ConversationArchiveRecord, error) {
 	if logs == nil {
 		return nil, infraerrors.InternalServer("CONVERSATION_ARCHIVE_UNAVAILABLE", "conversation storage is unavailable")
 	}
@@ -155,6 +208,36 @@ func (s *BackupService) StartConversationArchive(ctx context.Context, logs *Conv
 			s.finishConversationArchive()
 		}
 	}()
+	// Keep retry lookup and creation in the same catalog transaction as deletion.
+	ctx, release, err := s.lockBackupRecordUpdates(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	if retryID != "" {
+		records, err := s.loadConversationArchives(ctx)
+		if err != nil {
+			return nil, err
+		}
+		var original *ConversationArchiveRecord
+		for i := range records {
+			if records[i].ID == retryID {
+				original = &records[i]
+				break
+			}
+		}
+		if original == nil {
+			return nil, ErrBackupNotFound
+		}
+		if original.Status != "failed" {
+			return nil, infraerrors.Conflict("CONVERSATION_ARCHIVE_NOT_FAILED", "only failed conversation archives can be retried")
+		}
+		filters, err = restoreConversationArchiveFilters(original.Filters)
+		if err != nil {
+			return nil, err
+		}
+		deleteAfterBackup = original.DeleteAfterBackup
+	}
 	cfg, err := s.loadS3Config(ctx)
 	if err != nil {
 		return nil, err
@@ -177,7 +260,7 @@ func (s *BackupService) StartConversationArchive(ctx context.Context, logs *Conv
 		LastHeartbeatAt: now.Format(time.RFC3339),
 	}
 	record.ManifestKey = record.S3Key + ".metadata.json"
-	if err := s.saveConversationArchive(ctx, record, true); err != nil {
+	if err := s.saveConversationArchiveLocked(ctx, record, true); err != nil {
 		return nil, err
 	}
 	result := *record
@@ -340,10 +423,12 @@ func (s *BackupService) runConversationArchive(ctx context.Context, repo Convers
 	if err != nil {
 		return fmt.Errorf("upload conversation archive: %w", err)
 	}
+	// A successful upload may already have left an object even if size validation
+	// fails. Retain that evidence so deletion cannot silently discard its catalog.
+	record.SizeBytes = size
 	if size != info.Size() {
 		return fmt.Errorf("conversation archive upload size mismatch: expected %d, got %d", info.Size(), size)
 	}
-	record.SizeBytes = size
 	record.SHA256 = hex.EncodeToString(hash.Sum(nil))
 	// The sidecar describes the immutable uploaded snapshot, not mutable cleanup
 	// state. Both it and the catalog must be durable before deleting any row.
@@ -379,7 +464,14 @@ func (s *BackupService) loadConversationArchives(ctx context.Context) ([]Convers
 	}
 	records := make([]ConversationArchiveRecord, 0)
 	if raw != "" {
-		if err := json.Unmarshal([]byte(raw), &records); err != nil {
+		decoder := json.NewDecoder(strings.NewReader(raw))
+		// Filters contain int64 IDs; float64 would silently round large IDs on retry.
+		decoder.UseNumber()
+		if err := decoder.Decode(&records); err != nil {
+			return nil, infraerrors.InternalServer("CONVERSATION_ARCHIVES_CORRUPT", "conversation archive catalog is corrupted")
+		}
+		var trailing json.RawMessage
+		if decoder.Decode(&trailing) != io.EOF {
 			return nil, infraerrors.InternalServer("CONVERSATION_ARCHIVES_CORRUPT", "conversation archive catalog is corrupted")
 		}
 	}
@@ -392,6 +484,10 @@ func (s *BackupService) saveConversationArchive(ctx context.Context, record *Con
 		return err
 	}
 	defer release()
+	return s.saveConversationArchiveLocked(ctx, record, create)
+}
+
+func (s *BackupService) saveConversationArchiveLocked(ctx context.Context, record *ConversationArchiveRecord, create bool) error {
 	records, err := s.loadConversationArchives(ctx)
 	if err != nil {
 		return err
@@ -415,6 +511,65 @@ func (s *BackupService) saveConversationArchive(ctx context.Context, record *Con
 		}
 		records = append([]ConversationArchiveRecord{*record}, records...)
 	}
+	data, err := json.Marshal(records)
+	if err != nil {
+		return err
+	}
+	return s.settingRepo.Set(ctx, settingKeyConversationArchives, string(data))
+}
+
+// DeleteConversationArchive removes only backup objects and their catalog entry,
+// never source conversations. Keep the catalog locked until object deletion is
+// complete so workers, retries and other catalog writers cannot lose updates.
+func (s *BackupService) DeleteConversationArchive(ctx context.Context, id string) error {
+	ctx, release, err := s.lockBackupRecordUpdates(ctx)
+	if err != nil {
+		return err
+	}
+	defer release()
+	records, err := s.loadConversationArchives(ctx)
+	if err != nil {
+		return err
+	}
+	index := -1
+	for i := range records {
+		if records[i].ID == id {
+			index = i
+			break
+		}
+	}
+	if index < 0 {
+		return ErrBackupNotFound
+	}
+	record := &records[index]
+	if record.Status == "running" {
+		return ErrBackupInProgress
+	}
+	cfg, err := s.loadS3Config(ctx)
+	if err != nil {
+		return err
+	}
+	if cfg == nil || !cfg.IsConfigured() {
+		// Historical upload failures have no checksum. Do not apply this catalog-
+		// only cleanup to known uploads, including old size-mismatch failures.
+		if record.Status != "failed" || record.SHA256 != "" || record.SizeBytes != 0 || strings.Contains(record.ErrorMessage, "upload size mismatch") {
+			return ErrBackupS3NotConfigured
+		}
+	} else {
+		store, err := s.getOrCreateStore(ctx, cfg)
+		if err != nil {
+			return err
+		}
+		for _, key := range []string{record.S3Key, record.ManifestKey} {
+			if key == "" {
+				continue
+			}
+			if err := store.Delete(ctx, key); err != nil {
+				return fmt.Errorf("delete conversation archive object %q: %w", key, err)
+			}
+		}
+	}
+	records = append(records[:index], records[index+1:]...)
 	data, err := json.Marshal(records)
 	if err != nil {
 		return err

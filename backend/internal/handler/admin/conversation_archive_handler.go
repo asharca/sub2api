@@ -59,6 +59,28 @@ func (h *ConversationLogHandler) CreateArchive(c *gin.Context) {
 	response.Accepted(c, record)
 }
 
+func (h *ConversationLogHandler) RetryArchive(c *gin.Context) {
+	var req struct{}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	record, err := h.backupService.RetryConversationArchive(c.Request.Context(), h.conversationLogService, c.Param("id"))
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Accepted(c, record)
+}
+
+func (h *ConversationLogHandler) DeleteArchive(c *gin.Context) {
+	if err := h.backupService.DeleteConversationArchive(c.Request.Context(), c.Param("id")); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, nil)
+}
+
 func (h *ConversationLogHandler) ListArchives(c *gin.Context) {
 	records, err := h.backupService.ListConversationArchives(c.Request.Context())
 	if err != nil {

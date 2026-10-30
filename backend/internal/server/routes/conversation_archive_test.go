@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestConversationArchiveCreateAndDownloadRequireStepUp(t *testing.T) {
+func TestConversationArchiveSensitiveOperationsRequireStepUp(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	h := &handler.Handlers{Admin: &handler.AdminHandlers{ConversationLog: adminhandler.NewConversationLogHandler(nil, nil)}}
@@ -28,11 +28,13 @@ func TestConversationArchiveCreateAndDownloadRequireStepUp(t *testing.T) {
 		{http.MethodPost, "/admin/conversation-logs/archives", `{}`},
 		{http.MethodPost, "/admin/conversation-logs/archives", `{"delete_after_backup":true}`},
 		{http.MethodGet, "/admin/conversation-logs/archives/archive-id/download", ""},
+		{http.MethodPost, "/admin/conversation-logs/archives/archive-id/retry", `{}`},
+		{http.MethodDelete, "/admin/conversation-logs/archives/archive-id", ""},
 	} {
 		recorder := httptest.NewRecorder()
 		request := httptest.NewRequest(req.method, req.path, strings.NewReader(req.body))
 		router.ServeHTTP(recorder, request)
 		require.Equal(t, http.StatusUnauthorized, recorder.Code)
 	}
-	require.Equal(t, 4, gateCalls)
+	require.Equal(t, 6, gateCalls)
 }
