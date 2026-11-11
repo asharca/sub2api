@@ -360,6 +360,23 @@ func TestOpenAIWSCyberIdentityBinding(t *testing.T) {
 	require.False(t, disabled.reject, "strict setting is inert while cyber session blocking is disabled")
 }
 
+func TestBuildCyberSessionBlockCombinesExplicitAndTranscriptKeys(t *testing.T) {
+	body := []byte(`{"messages":[{"role":"user","content":"setup"},{"role":"assistant","content":"ready"},{"role":"user","content":"trigger"}]}`)
+	c := newTestGinContext()
+	c.Request = httptest.NewRequest(http.MethodPost, "/openai/v1/responses", nil)
+	block := buildCyberSessionBlock(7, c, body)
+	require.Len(t, block.Keys, 2)
+	require.Equal(t, []int{3, 2}, block.TranscriptLengths)
+	require.Equal(t, int64(7), block.APIKeyID)
+	require.NotEmpty(t, block.ScopeKey)
+
+	c.Request.Header.Set("session_id", "sess-explicit")
+	block = buildCyberSessionBlock(7, c, body)
+	require.Len(t, block.Keys, 3)
+	require.Equal(t, []int{3, 2}, block.TranscriptLengths)
+	require.NotEmpty(t, block.ScopeKey)
+}
+
 // TestRecordCyberPolicyIfMarked_BlockKeyPlumbed verifies the 6th param is
 // accepted and a non-empty key with nil gateway service does not panic
 // (write-side guards live in the service layer).

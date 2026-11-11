@@ -15,6 +15,8 @@
 
 按需同步上游更新，扩展实用功能，独立发布生产版本。
 
+已同步 Wei-Shaw 上游 `v0.2.21` 及 `main` 提交 `530c5e3a4`，保留本分支的会话归档与品牌定制。上游新增的管理 MCP 和图片输出格式说明分别见 [管理 MCP](docs/mcp.md) 与 [OpenAI 图片接口](docs/OPENAI_IMAGES_CODEX.md)。
+
 [来源项目](https://github.com/ranxi2001/sub2api) · [使用文档](https://tosky.io/docs/) · [版本下载](https://github.com/asharca/sub2api/releases) · [问题反馈](https://github.com/asharca/sub2api/issues)
 
 中文 | [English](README_EN.md) | [日本語](README_JA.md)

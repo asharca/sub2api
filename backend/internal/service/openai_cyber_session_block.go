@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
@@ -15,8 +16,10 @@ import (
 // repository 层 gatewayCache 附带实现（类型断言探测接入，不改 GatewayCache
 // 共享接口）；测试 stub 不实现时屏蔽能力自动降级关闭。
 type CyberSessionBlockStore interface {
-	SetCyberSessionBlocked(ctx context.Context, scopeKey string, keys []string, ttl time.Duration) error
-	IsCyberSessionScopeActive(ctx context.Context, scopeKey string) (bool, error)
+	SetCyberSessionBlocked(ctx context.Context, block CyberSessionBlock, ttl time.Duration) error
+	// CyberSessionTranscriptLengths returns the recorded transcript block
+	// lengths of the API key, or none when the source scope is inactive.
+	CyberSessionTranscriptLengths(ctx context.Context, apiKeyID int64, scopeKey string) ([]int, error)
 	FindCyberSessionBlocked(ctx context.Context, keys []string) (string, error)
 }
 
@@ -28,6 +31,16 @@ type CyberSessionIdentityResolution struct {
 	BlockKey   string
 	LookupKeys []string
 	Inherited  bool
+}
+
+// CyberSessionBlock is one cyber hit to persist. Keys are exact block keys;
+// TranscriptLengths records the history length of each transcript key among
+// them and, like ScopeKey, is only meaningful for transcript matching.
+type CyberSessionBlock struct {
+	APIKeyID          int64
+	ScopeKey          string
+	Keys              []string
+	TranscriptLengths []int
 }
 
 func (r CyberSessionIdentityResolution) Resolved() bool {
@@ -70,6 +83,19 @@ func CyberSessionExplicitBlockKey(apiKeyID int64, c *gin.Context, body []byte) s
 
 func cyberSessionExplicitBlockKeyForIdentity(apiKeyID int64, identity openAIClientSessionIdentity) string {
 	raw := "cyber-explicit-session:v3|api_key=" + strconv.FormatInt(apiKeyID, 10) + "|kind=" + identity.kind + "|id=" + identity.value
+	sum := sha256.Sum256([]byte(raw))
+	return hex.EncodeToString(sum[:])
+}
+
+// CyberSessionScopeKey is a coarse, non-blocking fingerprint used only to
+// avoid transcript parsing and MGET for sources that never produced a hit.
+func CyberSessionScopeKey(apiKeyID int64, clientIP, userAgent string) string {
+	if apiKeyID <= 0 {
+		return ""
+	}
+	raw := "cyber-scope:v1|api_key=" + strconv.FormatInt(apiKeyID, 10) +
+		"|ip=" + strings.TrimSpace(clientIP) +
+		"|ua=" + NormalizeSessionUserAgent(userAgent)
 	sum := sha256.Sum256([]byte(raw))
 	return hex.EncodeToString(sum[:])
 }
@@ -125,8 +151,8 @@ func (s *OpenAIGatewayService) CyberSessionIdentityStrictEnabled(ctx context.Con
 
 // MarkCyberSessionBlocked 把会话写入屏蔽表（写入点：cyber 命中后）。
 // 开关关闭、key 为空或存储不可用时静默跳过。
-func (s *OpenAIGatewayService) MarkCyberSessionBlocked(ctx context.Context, scopeKey string, keys []string) {
-	if s == nil || len(keys) == 0 {
+func (s *OpenAIGatewayService) MarkCyberSessionBlocked(ctx context.Context, block CyberSessionBlock) {
+	if s == nil || len(block.Keys) == 0 {
 		return
 	}
 	enabled, ttl := s.CyberSessionBlockRuntime(ctx)
@@ -137,17 +163,43 @@ func (s *OpenAIGatewayService) MarkCyberSessionBlocked(ctx context.Context, scop
 	if store == nil {
 		return
 	}
-	if err := store.SetCyberSessionBlocked(ctx, scopeKey, keys, ttl); err != nil {
+	if err := store.SetCyberSessionBlocked(ctx, block, ttl); err != nil {
 		logger.LegacyPrintf("service.openai_gateway", "cyber session block write failed: err=%v", err)
 	}
 }
 
-// FindCyberSessionBlockedForRequest blocks only an exact session identity.
-// Unknown identity and storage failures remain fail-open: the upstream still
-// evaluates the request. Source metadata and history length cannot prove that
-// a request belongs to a previously blocked session.
-func (s *OpenAIGatewayService) FindCyberSessionBlockedForRequest(ctx context.Context, apiKeyID int64, c *gin.Context, body []byte, _ string, _ string) string {
-	return s.FindCyberSessionBlockedForIdentity(ctx, ResolveCyberSessionIdentity(apiKeyID, c, body))
+// FindCyberSessionBlockedForRequest prefers trustworthy explicit identities.
+// Without one, exact recorded transcript prefixes provide upstream-compatible
+// continuation matching; a distinct explicit identity never inherits a block
+// solely because its source or transcript resembles another conversation.
+func (s *OpenAIGatewayService) FindCyberSessionBlockedForRequest(ctx context.Context, apiKeyID int64, c *gin.Context, body []byte, clientIP string, userAgent string) string {
+	identity := ResolveCyberSessionIdentity(apiKeyID, c, body)
+	if identity.Resolved() {
+		return s.FindCyberSessionBlockedForIdentity(ctx, identity)
+	}
+	enabled, _ := s.CyberSessionBlockRuntime(ctx)
+	if !enabled || apiKeyID <= 0 {
+		return ""
+	}
+	store := s.cyberSessionBlockStore()
+	if store == nil {
+		return ""
+	}
+	lengths, err := store.CyberSessionTranscriptLengths(ctx, apiKeyID, CyberSessionScopeKey(apiKeyID, clientIP, userAgent))
+	if err != nil {
+		logger.LegacyPrintf("service.openai_gateway", "cyber transcript lengths read failed: err=%v", err)
+		return ""
+	}
+	keys := cyberSessionTranscriptKeysAt(apiKeyID, body, lengths)
+	if len(keys) == 0 {
+		return ""
+	}
+	key, err := store.FindCyberSessionBlocked(ctx, keys)
+	if err != nil {
+		logger.LegacyPrintf("service.openai_gateway", "cyber session block batch read failed: err=%v", err)
+		return ""
+	}
+	return key
 }
 
 // FindCyberSessionBlockedForIdentity checks a pre-resolved identity. This lets

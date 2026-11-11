@@ -29,7 +29,7 @@ func (s *httpUpstreamService) doRegionalEgress(req *http.Request, accountID int6
 	client = s.httpClientForUpstreamRequest(client, req)
 	client = httpClientWithGrokAccessDeniedFallback(client)
 	// Regional routing adds no replay/failover or transparent direct fallback.
-	return doUpstreamRequest(client, req)
+	return doUpstreamRequest(client, req, s.upstreamDrainTimeout())
 }
 
 type regionalUpstreamTransport struct {

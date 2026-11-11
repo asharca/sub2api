@@ -8,13 +8,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/stretchr/testify/require"
 )
 
 func TestOpenAISSEReadPumpSilentHeartbeatAndJoin(t *testing.T) {
 	reader, writer := io.Pipe()
 	defer func() { _ = writer.Close() }()
-	pump := newOpenAISSEReadPump(reader, 1024)
+	pump := newOpenAISSEReadPump(reader, 1024, nil)
 	defer pump.Close()
 	beats := time.NewTicker(5 * time.Millisecond)
 	defer beats.Stop()
@@ -35,7 +36,7 @@ func TestOpenAISSEReadPumpSilentHeartbeatAndJoin(t *testing.T) {
 
 func TestOpenAISSEReadPumpFragmentedDocumentIsActivity(t *testing.T) {
 	reader, writer := io.Pipe()
-	pump := newOpenAISSEReadPump(reader, 4096)
+	pump := newOpenAISSEReadPump(reader, 4096, nil)
 	defer pump.Close()
 	done := make(chan struct{})
 	go func() {
@@ -57,7 +58,7 @@ func TestOpenAISSEReadPumpCancelAndBoundedQueue(t *testing.T) {
 	for _, input := range []string{"", strings.Repeat("data: {}\n\n", 10000)} {
 		t.Run("cancel", func(t *testing.T) {
 			reader, writer := io.Pipe()
-			pump := newOpenAISSEReadPump(reader, 1024)
+			pump := newOpenAISSEReadPump(reader, 1024, nil)
 			done := make(chan struct{})
 			go func() {
 				defer close(done)
@@ -85,7 +86,7 @@ func TestOpenAISSEReadPumpCancelAndBoundedQueue(t *testing.T) {
 
 func TestOpenAISSEReadPumpFirstOutputDeadlineNotExtendedByComments(t *testing.T) {
 	reader, writer := io.Pipe()
-	pump := newOpenAISSEReadPump(reader, 1024)
+	pump := newOpenAISSEReadPump(reader, 1024, nil)
 	pump.firstOutputDeadline = time.Now().Add(90 * time.Millisecond)
 	done := make(chan struct{})
 	go func() {
@@ -111,4 +112,15 @@ func TestOpenAISSEReadPumpIncompleteUsageIsNotAnUpstreamTerminal(t *testing.T) {
 	require.False(t, result.SucceededForScheduling())
 	require.Empty(t, result.UpstreamTerminalEvent, "local timeout must not invent an upstream terminal")
 	require.Equal(t, 7, result.Usage.OutputTokens)
+}
+
+func TestOpenAISSEReadPumpEnforcesConfiguredEventLimit(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Gateway.SSEEventMaxLines = 2
+	reader := io.NopCloser(strings.NewReader("data: {}\ndata: {}\ndata: {}\n\n"))
+	pump := newOpenAISSEReadPump(reader, 1024, cfg)
+	defer pump.Close()
+	for pump.Next(context.Background(), 0, nil, nil) {
+	}
+	require.ErrorIs(t, pump.Err(), errSSETransportLimit)
 }

@@ -26,7 +26,7 @@ func ChatCompletionsToResponses(req *ChatCompletionsRequest) (*ResponsesRequest,
 func ChatCompletionsToResponsesWithMinOutputTokens(req *ChatCompletionsRequest, minOutputTokens int) (*ResponsesRequest, error) {
 	// Preserve native reasoning precedence without changing field provenance.
 	effort := req.EffectiveReasoningEffort()
-	if err := openai.ValidateGPT61SolReasoningEffort(req.Model, effort); err != nil {
+	if err := openai.ValidateGPT61ReasoningEffort(req.Model, effort); err != nil {
 		return nil, err
 	}
 	input, err := convertChatMessagesToResponsesInput(req.Messages)
