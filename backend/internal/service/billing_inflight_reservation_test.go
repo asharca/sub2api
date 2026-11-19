@@ -6,12 +6,17 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"os"
+	"os/exec"
+	"regexp"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	gocache "github.com/patrickmn/go-cache"
 	"github.com/stretchr/testify/require"
 )
 
@@ -73,12 +78,21 @@ func newInflightEstimateGateway(t *testing.T, channelService *ChannelService) *G
 	cfg := &config.Config{}
 	cfg.Billing.InflightReservation = config.InflightReservationConfig{Enabled: true, DefaultMaxTokens: 1000, MaxInputTokens: 200000, MaxOutputTokens: 128000}
 	billing := NewBillingService(cfg, nil)
-	return &GatewayService{
-		cfg:            cfg,
-		billingService: billing,
-		resolver:       NewModelPricingResolver(channelService, billing),
-		channelService: channelService,
+	userGroupRateTTL := resolveUserGroupRateCacheTTL(cfg)
+	svc := &GatewayService{
+		cfg:                cfg,
+		billingService:     billing,
+		resolver:           NewModelPricingResolver(channelService, billing),
+		channelService:     channelService,
+		userGroupRateCache: gocache.New(userGroupRateTTL, 0),
 	}
+	// Match NewGatewayService's shared resolver. Leaving it nil creates a new
+	// cache and janitor per estimate; their asynchronous finalizers distort heap
+	// measurements. This fixture needs no background expiration worker.
+	svc.userGroupRateResolver = newUserGroupRateResolver(
+		nil, svc.userGroupRateCache, userGroupRateTTL, &svc.userGroupRateSF, "service.gateway",
+	)
+	return svc
 }
 
 func TestInflightEstimate_ChannelAliasUsesMappedModel(t *testing.T) {
@@ -358,8 +372,8 @@ func TestInflightEstimate_AccountLevelMappingFallsBackLikeBilling(t *testing.T) 
 	groupID := int64(31)
 	svc := newInflightEstimateGateway(t, nil)
 	snap := &inflightSnapshotCacheStub{byBucket: map[string][]Account{inflightBucketKey(groupID, PlatformAnthropic): {
-		{ID: 1, Platform: PlatformAnthropic, Credentials: map[string]any{"model_mapping": map[string]any{"acct-alias-31": "claude-sonnet-4-5"}}},
-		{ID: 2, Platform: PlatformAnthropic, Credentials: map[string]any{"model_mapping": map[string]any{"acct-alias-31": "claude-opus-4-1"}}},
+		{ID: 1, Platform: PlatformAnthropic, Status: StatusActive, Schedulable: true, Credentials: map[string]any{"model_mapping": map[string]any{"acct-alias-31": "claude-sonnet-4-5"}}},
+		{ID: 2, Platform: PlatformAnthropic, Status: StatusActive, Schedulable: true, Credentials: map[string]any{"model_mapping": map[string]any{"acct-alias-31": "claude-opus-4-1"}}},
 	}}}
 	attachInflightSnapshot(svc, snap)
 	apiKey := &APIKey{User: &User{ID: 1}, GroupID: &groupID, Group: &Group{ID: groupID, Platform: PlatformAnthropic, RateMultiplier: 1}}
@@ -431,8 +445,23 @@ func attachInflightSnapshot(svc *GatewayService, snap *inflightSnapshotCacheStub
 	return repo
 }
 
-// 已定价模型永不查账号映射；随机未定价模型名只读取调度器快照，不直接查库。
-func TestInflightEstimate_AccountMappingNoDB(t *testing.T) {
+// 已定价模型永不查账号映射；随机未定价模型名不直接查库、不产生按模型名的缓存（内存有界）。
+func TestInflightEstimate_AccountMappingNoDBAndBoundedMemory(t *testing.T) {
+	// HeapAlloc is process-wide: unrelated background work in other service
+	// tests must not be counted as memory retained by this estimate path.
+	const childEnv = "SUB2API_BILLING_HEAP_TEST_CHILD"
+	if os.Getenv(childEnv) != "1" {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		executable, err := os.Executable()
+		require.NoError(t, err)
+		cmd := exec.CommandContext(ctx, executable, "-test.run=^"+regexp.QuoteMeta(t.Name())+"$", "-test.count=1")
+		cmd.Env = append(os.Environ(), childEnv+"=1")
+		output, err := cmd.CombinedOutput()
+		require.NoError(t, err, "isolated heap test failed:\n%s", output)
+		return
+	}
+
 	groupID := int64(40)
 	svc := newInflightEstimateGateway(t, nil)
 	snap := &inflightSnapshotCacheStub{byBucket: map[string][]Account{inflightBucketKey(groupID, PlatformAnthropic): {
@@ -448,20 +477,30 @@ func TestInflightEstimate_AccountMappingNoDB(t *testing.T) {
 	}
 	require.Zero(t, snap.reads.Load(), "priced models must never trigger account-mapping lookup")
 
+	var before, after runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&before)
 	const n = 20000
 	for i := 0; i < n; i++ {
 		_, priced := svc.EstimateInflightReservation(ctx, apiKey, InflightEstimateRequest{Model: fmt.Sprintf("rand-%d-%d", i, time.Now().UnixNano()), BodyBytes: 4000, MaxTokens: 1000})
 		require.False(t, priced)
 	}
+	runtime.GC()
+	runtime.ReadMemStats(&after)
+	// Keep the measured service and request reachable through the final GC so
+	// a per-model cache regression cannot disappear with a dead test fixture.
+	runtime.KeepAlive(svc)
+	runtime.KeepAlive(apiKey)
 	require.Zero(t, repo.dbCalls.Load(), "no direct DB query on the request path")
 	require.Equal(t, int64(n), snap.reads.Load(), "unpriced lookups read the scheduler snapshot only")
+	require.Less(t, int64(after.HeapAlloc)-int64(before.HeapAlloc), int64(8<<20), "no per-model cache growth")
 }
 
 // 无分组 API Key：使用调度器的未分组账号池，估算与计费回退的账号映射模型同口径。
 func TestInflightEstimate_NoGroupKeyUsesUngroupedAccountMapping(t *testing.T) {
 	svc := newInflightEstimateGateway(t, nil)
 	snap := &inflightSnapshotCacheStub{byBucket: map[string][]Account{inflightBucketKey(0, PlatformAnthropic): {
-		{ID: 1, Platform: PlatformAnthropic, Credentials: map[string]any{"model_mapping": map[string]any{"acct-alias-nog": "claude-opus-4-1"}}},
+		{ID: 1, Platform: PlatformAnthropic, Status: StatusActive, Schedulable: true, Credentials: map[string]any{"model_mapping": map[string]any{"acct-alias-nog": "claude-opus-4-1"}}},
 	}}}
 	attachInflightSnapshot(svc, snap)
 	apiKey := &APIKey{User: &User{ID: 1}}
@@ -486,7 +525,7 @@ func TestInflightEstimate_AccountMappingNoNegativeCaching(t *testing.T) {
 
 	_, priced := svc.EstimateInflightReservation(ctx, apiKey, req)
 	require.False(t, priced)
-	snap.set(groupID, PlatformAnthropic, []Account{{ID: 9, Platform: PlatformAnthropic, Credentials: map[string]any{"model_mapping": map[string]any{"acct-*": "claude-sonnet-4-5"}}}})
+	snap.set(groupID, PlatformAnthropic, []Account{{ID: 9, Platform: PlatformAnthropic, Status: StatusActive, Schedulable: true, Credentials: map[string]any{"model_mapping": map[string]any{"acct-*": "claude-sonnet-4-5"}}}})
 	est, priced := svc.EstimateInflightReservation(ctx, apiKey, req)
 	require.True(t, priced, "new mapping (incl. wildcard) visible on next request")
 	require.Greater(t, est, 0.0)

@@ -4,7 +4,7 @@
 
 # Sub2API
 
-[![Go](https://img.shields.io/badge/Go-1.27.2-00ADD8.svg)](https://golang.org/)
+[![Go](https://img.shields.io/badge/Go-1.27.4-00ADD8.svg)](https://golang.org/)
 [![Vue](https://img.shields.io/badge/Vue-3.4+-4FC08D.svg)](https://vuejs.org/)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15+-336791.svg)](https://www.postgresql.org/)
 [![Redis](https://img.shields.io/badge/Redis-7+-DC382D.svg)](https://redis.io/)
@@ -15,7 +15,7 @@
 
 按需同步上游更新，扩展实用功能，独立发布生产版本。
 
-已同步 Wei-Shaw 上游 `v0.2.21` 及 `main` 提交 `530c5e3a4`，保留本分支的会话归档与品牌定制。上游新增的管理 MCP 和图片输出格式说明分别见 [管理 MCP](docs/mcp.md) 与 [OpenAI 图片接口](docs/OPENAI_IMAGES_CODEX.md)。
+已同步 Wei-Shaw 上游 `v0.2.23` 及 `main` 提交 `2af3f1e15`，保留本分支的会话归档与品牌定制。管理 MCP 和图片输出格式说明分别见 [管理 MCP](docs/mcp.md) 与 [OpenAI 图片接口](docs/OPENAI_IMAGES_CODEX.md)。
 
 [来源项目](https://github.com/ranxi2001/sub2api) · [使用文档](https://tosky.io/docs/) · [版本下载](https://github.com/asharca/sub2api/releases) · [问题反馈](https://github.com/asharca/sub2api/issues)
 
@@ -116,7 +116,7 @@ gateway:
 
 | 组件 | 技术 |
 |------|------|
-| 后端 | Go 1.27.2, Gin, Ent |
+| 后端 | Go 1.27.4, Gin, Ent |
 | 前端 | Vue 3.4+, Vite 5+, TailwindCSS |
 | 数据库 | PostgreSQL 15+ |
 | 缓存/队列 | Redis 7+ |
