@@ -13,7 +13,11 @@ func WithCompactedWindow(ctx context.Context, upstream io.ReadCloser, window []a
 	reader, writer := io.Pipe()
 	go func() {
 		defer func() { _ = upstream.Close() }()
-		stop := context.AfterFunc(ctx, func() { _ = upstream.Close(); _ = writer.CloseWithError(ctx.Err()) })
+		stop := context.AfterFunc(ctx, func() {
+			// Publish cancellation before closing upstream wakes readEvents.
+			_ = writer.CloseWithError(ctx.Err())
+			_ = upstream.Close()
+		})
 		defer stop()
 		sequence := 0
 		inserted := false
