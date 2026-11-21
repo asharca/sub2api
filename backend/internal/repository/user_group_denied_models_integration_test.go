@@ -12,8 +12,7 @@ import (
 
 type userGroupDeniedModelsFixture struct {
 	ctx     context.Context
-	repo    *userGroupRateRepository
-	tx      sqlExecutor
+	repo    service.UserGroupRateRepository
 	groupID int64
 	userA   int64
 	userB   int64
@@ -21,15 +20,18 @@ type userGroupDeniedModelsFixture struct {
 
 func newUserGroupDeniedModelsFixture(t *testing.T) *userGroupDeniedModelsFixture {
 	t.Helper()
-	tx := testEntTx(t)
-	client := tx.Client()
-	group := mustCreateGroup(t, client, &service.Group{Name: "denied-models-group"})
-	userA := mustCreateUser(t, client, &service.User{Email: "denied-a@example.com"})
-	userB := mustCreateUser(t, client, &service.User{Email: "denied-b@example.com"})
+	// Rate/RPM updates start their own transactions and must see committed fixtures.
+	client := testEntClient(t)
+	ctx := context.Background()
+	group := mustCreateGroup(t, client, &service.Group{Name: t.Name()})
+	t.Cleanup(func() { require.NoError(t, client.Group.DeleteOneID(group.ID).Exec(ctx)) })
+	userA := mustCreateUser(t, client, &service.User{})
+	t.Cleanup(func() { require.NoError(t, client.User.DeleteOneID(userA.ID).Exec(ctx)) })
+	userB := mustCreateUser(t, client, &service.User{})
+	t.Cleanup(func() { require.NoError(t, client.User.DeleteOneID(userB.ID).Exec(ctx)) })
 	return &userGroupDeniedModelsFixture{
-		ctx:     context.Background(),
-		repo:    &userGroupRateRepository{sql: tx},
-		tx:      tx,
+		ctx:     ctx,
+		repo:    NewUserGroupRateRepository(integrationDB),
 		groupID: group.ID,
 		userA:   userA.ID,
 		userB:   userB.ID,
@@ -39,7 +41,7 @@ func newUserGroupDeniedModelsFixture(t *testing.T) *userGroupDeniedModelsFixture
 func (f *userGroupDeniedModelsFixture) rowCount(t *testing.T) int {
 	t.Helper()
 	var count int
-	require.NoError(t, scanSingleRow(f.ctx, f.tx,
+	require.NoError(t, scanSingleRow(f.ctx, integrationDB,
 		"SELECT COUNT(*) FROM user_group_rate_multipliers WHERE group_id = $1", []any{f.groupID}, &count))
 	return count
 }
