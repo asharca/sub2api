@@ -79,6 +79,15 @@ type unexpectedEOFReader struct{}
 
 func (unexpectedEOFReader) Read([]byte) (int, error) { return 0, io.ErrUnexpectedEOF }
 
+type messagesFailoverAccountRepo struct {
+	grokCredentialHandlerRepo
+}
+
+func (r *messagesFailoverAccountRepo) GetOpenAITurnAdmission(ctx context.Context, id int64) (*service.Account, *service.Account, error) {
+	account, err := r.GetByID(ctx, id)
+	return account, nil, err // These API-key accounts have no credential parent.
+}
+
 type preContentFailoverScenario struct {
 	accounts    []service.Account
 	respond     func(call int) (*http.Response, error)
@@ -115,7 +124,7 @@ func serveMessagesScenario(t *testing.T, sc preContentFailoverScenario) (*httpte
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	groupID := int64(9101)
-	repo := &grokCredentialHandlerRepo{accounts: sc.accounts, missingOnGet: map[int64]bool{}}
+	repo := &messagesFailoverAccountRepo{grokCredentialHandlerRepo{accounts: sc.accounts}}
 	upstream := &preContentFailoverUpstream{respond: sc.respond}
 	cfg := &config.Config{RunMode: config.RunModeSimple}
 	cfg.Gateway.MaxAccountSwitches = 3

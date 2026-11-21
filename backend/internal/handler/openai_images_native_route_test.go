@@ -5,6 +5,7 @@ package handler
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -44,7 +45,11 @@ func newNativeImageRoute(t *testing.T, delay time.Duration, status int) (*httpte
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	var calls atomic.Int64
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	const fixtureHost = "fixture.example"
+	upstreamMux := http.NewServeMux()
+	// Do redirects the connection to loopback but preserves the original Host.
+	// Only traffic to the fixture's image API belongs in the call count.
+	upstreamMux.HandleFunc(fixtureHost+"/v1/images/", func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
 		require.Equal(t, http.MethodPost, r.Method)
 		switch r.URL.Path {
@@ -74,13 +79,15 @@ func newNativeImageRoute(t *testing.T, delay time.Duration, status int) (*httpte
 		} else {
 			_, _ = io.WriteString(w, `{"error":{"type":"invalid_request_error","code":"native_route_rejected","message":"delayed image rejection"}}`)
 		}
-	}))
+	})
+	upstream := httptest.NewServer(upstreamMux)
 	t.Cleanup(upstream.Close)
 	target, err := url.Parse(upstream.URL)
 	require.NoError(t, err)
 	cfg := &config.Config{RunMode: config.RunModeSimple}
+	cfg.Runtime.Role = config.RuntimeRoleGateway
 	cfg.Gateway.ImageNonstreamKeepaliveInterval = 1
-	repo := openAIImagesFailoverAccountRepo{accounts: []service.Account{{ID: 1, Name: "fixture", Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey, Status: service.StatusActive, Schedulable: true, Credentials: map[string]any{"api_key": "fixture-key", "base_url": "https://fixture.example/v1"}}}}
+	repo := openAIImagesFailoverAccountRepo{accounts: []service.Account{{ID: 1, Name: "fixture", Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey, Status: service.StatusActive, Schedulable: true, Credentials: map[string]any{"api_key": "fixture-key", "base_url": "https://" + fixtureHost + "/v1"}}}}
 	transport := &nativeImageRouteUpstream{target: target, client: upstream.Client()}
 	deferred := service.NewDeferredService(repo, nil, time.Minute)
 	gateway := service.NewOpenAIGatewayService(repo, nil, nil, nil, nil, nil, nil, nil, cfg, nil, nil, service.NewBillingService(cfg, nil), nil, nil, transport, deferred, nil, nil, nil, nil, nil, nil, nil)
@@ -182,7 +189,13 @@ func TestNativeImagesRoutesProxyTimeout(t *testing.T) {
 				transport.ResponseHeaderTimeout = 1300 * time.Millisecond
 				defer transport.CloseIdleConnections()
 				proxy.Transport = transport
-				proxy.ErrorHandler = func(w http.ResponseWriter, _ *http.Request, _ error) { w.WriteHeader(http.StatusGatewayTimeout) }
+				proxy.ErrorHandler = func(w http.ResponseWriter, _ *http.Request, err error) {
+					if !errors.Is(err, context.DeadlineExceeded) {
+						http.Error(w, err.Error(), http.StatusBadGateway)
+						return
+					}
+					w.WriteHeader(http.StatusGatewayTimeout)
+				}
 				downstream := httptest.NewServer(proxy)
 				defer downstream.Close()
 				resp, err := downstream.Client().Do(nativeImageRequest(t, downstream.URL+path, native))
