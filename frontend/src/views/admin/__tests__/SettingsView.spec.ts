@@ -210,8 +210,6 @@ vi.mock("vue-i18n", async () => {
     "admin.settings.paymentVisibleMethods.sourceLabel": "支付来源",
     "admin.settings.paymentVisibleMethods.sourceHint": "启用后必须明确选择一个来源；未配置状态不会对外展示该支付方式。",
     "admin.settings.paymentVisibleMethods.sourceRequiredError": "{title} 已启用，请先选择支付来源。",
-    "admin.settings.payment.configGuide": "查看支付配置说明",
-    "admin.settings.payment.findProvider": "查看支持的支付方式",
     "admin.settings.openaiExperimentalScheduler.title": "OpenAI 实验调度策略",
     "admin.settings.openaiExperimentalScheduler.description": "默认关闭。开启后仅影响本网关在 OpenAI 账号间的实验性调度选择逻辑，不代表上游 OpenAI 官方能力。",
     "admin.settings.openaiExperimentalScheduler.lowRatePriorityTitle": "低倍率优先",
@@ -1580,28 +1578,16 @@ describe("admin SettingsView payment visible method controls", () => {
     );
   });
 
-  it("links payment guidance to README sections instead of removed payment docs", async () => {
+  it("shows payment guidance without linking to the upstream repository", async () => {
     const wrapper = mountView();
 
     await flushPromises();
     await openPaymentTab(wrapper);
 
-    const paymentLinks = wrapper
-      .findAll("a")
-      .filter((node) =>
-        ["查看支付配置说明", "查看支持的支付方式"].includes(node.text()),
-      );
-
-    expect(paymentLinks).toHaveLength(2);
-    expect(paymentLinks[0]?.attributes("href")).toBe(
-      "https://github.com/Wei-Shaw/sub2api/blob/main/docs/PAYMENT_CN.md",
-    );
-    expect(paymentLinks[1]?.attributes("href")).toBe(
-      "https://github.com/Wei-Shaw/sub2api/blob/main/docs/PAYMENT_CN.md#支持的支付方式",
-    );
-    for (const link of paymentLinks) {
-      expect(link.attributes("href")).toContain("docs/PAYMENT");
-    }
+    expect(wrapper.get("#settings-section-payment").isVisible()).toBe(true);
+    expect(wrapper.text()).toContain("admin.settings.payment.description");
+    expect(wrapper.text()).toContain("admin.settings.payment.enabledPaymentTypesHint");
+    expect(wrapper.find('a[href*="github.com/Wei-Shaw/sub2api" i]').exists()).toBe(false);
   });
 
   it("does not submit legacy visible payment method settings", async () => {

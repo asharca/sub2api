@@ -3268,10 +3268,6 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 		require.Equal(t, acquiredUsers.Load(), atomic.LoadInt32(&cache.releaseUserCalled), "user slots must be released")
 		require.Equal(t, acquiredAccounts.Load(), atomic.LoadInt32(&cache.releaseAccountCalled), "account slots must be released")
 	}()
-	closeStatus := tc.closeStatus
-	if closeStatus == 0 {
-		closeStatus = coderws.StatusPolicyViolation
-	}
 
 	writeCtx, cancelWrite := context.WithTimeout(context.Background(), 3*time.Second)
 	err = clientConn.Write(writeCtx, coderws.MessageText, []byte(tc.firstPayload))
@@ -3292,11 +3288,7 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 		var closeErr coderws.CloseError
 		require.ErrorAs(t, readErr, &closeErr)
 		require.Equal(t, tc.closeStatus, closeErr.Code)
-		reason := tc.closeReason
-		if reason == "" {
-			reason = "not available for this group"
-		}
-		require.Contains(t, closeErr.Reason, reason)
+		require.Contains(t, closeErr.Reason, tc.closeReason)
 		require.Empty(t, upstreamPayloadCh, "rejected first turn must not reach upstream")
 		_ = clientConn.CloseNow()
 		return openAIResponsesWSUsageLogResult{}
@@ -3336,11 +3328,7 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 			var closeErr coderws.CloseError
 			require.ErrorAs(t, readErr, &closeErr)
 			require.Equal(t, tc.closeStatus, closeErr.Code)
-			reason := tc.closeReason
-			if reason == "" {
-				reason = "not available for this group"
-			}
-			require.Contains(t, closeErr.Reason, reason)
+			require.Contains(t, closeErr.Reason, tc.closeReason)
 			// 被拒 turn 不得到达上游：只统计真正的 turn 帧（response.create）。
 			// fork 的中继语义会转发 session.update 等非 turn 帧并收到上游 ack，
 			// 因此不能把通道里的全部帧数当作 turn 数，但仍逐帧校验 JSON。

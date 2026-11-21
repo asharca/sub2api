@@ -12,7 +12,7 @@
 ## 发布独立版本：先分支，后标签
 
 1. 从 `v1.0.0` 起使用本仓库自己的稳定标签 `vMAJOR.MINOR.PATCH`，不跟随上游编号，不加 `-asharca.N`。将不带 `v` 的版本号写入 `backend/cmd/server/VERSION`，同步检查 `deploy/docker-compose.yml` 的默认镜像标签和面向用户的安装示例。确认预定标签在本地和 `origin` 均未被使用；不要移动、覆盖或重推已有标签。
-2. 按[发布工具说明](.github/release-tools/README.md)运行本地发布矩阵检查和此次改动相关的回归测试。将准备好的版本提交至 `release/standalone`。获准推送后，先推送该分支至 `origin`，再按发布说明运行 Actions dry run，核对产物、版本和校验和。演练失败则停止，不推正式标签。
+2. 按[发布工具说明](.github/release-tools/README.md)运行发布矩阵检查和相关回归测试。获准推送后，先推送 `release/standalone` 至 `origin`，再执行 Actions dry run，核对产物、版本和校验和。只有同一提交的完整 CI、安全扫描与发布演练全部成功才可推标签；任何一项失败或未完成都应停止。
 3. **仅在获准正式发布后**，确认待发布 SHA 就是通过演练的提交，且已在 `origin/release/standalone` 历史中。从该提交读取版本创建附注标签；以下命令中的 `SHA` 须预先设为该完整提交号：
 
    ```bash

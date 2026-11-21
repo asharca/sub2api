@@ -28,9 +28,9 @@ var (
 )
 
 const (
-	githubRepo          = "asharca/sub2api"
-	githubReleaseBranch = "release/standalone"
-	updateCacheTTL      = 1200 // 20 minutes
+	githubRepo                 = "asharca/sub2api"
+	githubReleaseBranch        = "release/standalone"
+	updateCacheTTL             = 1200 // 20 minutes
 	noStandaloneReleaseWarning = "no installable standalone stable release for " + runtime.GOOS + "/" + runtime.GOARCH
 
 	// Security: allowed download domains for updates

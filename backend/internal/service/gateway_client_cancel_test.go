@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -253,13 +254,14 @@ type claudeNotifyWriter struct {
 	observed chan struct{}
 }
 
-func (w *claudeNotifyWriter) Write(p []byte) (int, error) {
-	n, err := w.ResponseRecorder.Write(p)
-	if strings.Contains(string(p), "message_start") {
+// Observe the flushed frame regardless of whether Gin used Write or WriteString.
+func (w *claudeNotifyWriter) Flush() {
+	w.ResponseRecorder.Flush()
+	body := w.Body.Bytes()
+	if bytes.Contains(body, []byte(`"message_start"`)) && bytes.Contains(body, []byte(`"usage"`)) {
 		select {
 		case w.observed <- struct{}{}:
 		default:
 		}
 	}
-	return n, err
 }
