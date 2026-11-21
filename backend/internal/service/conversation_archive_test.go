@@ -92,6 +92,12 @@ func TestConversationArchiveDurableBeforeExactIDCleanup(t *testing.T) {
 				raw, err := settings.GetValue(context.Background(), settingKeyConversationArchives)
 				require.NoError(t, err)
 				require.Contains(t, raw, record.SHA256)
+				live, err := s.GetConversationArchive(context.Background(), record.ID)
+				require.NoError(t, err)
+				require.Equal(t, "cleanup", live.Phase)
+				require.False(t, live.CanCancel)
+				_, err = s.CancelConversationArchive(context.Background(), record.ID)
+				require.ErrorContains(t, err, "archive cannot be cancelled")
 			}
 			s.executeConversationArchive(repo, store, ConversationLogFilters{}, record)
 			require.Equal(t, "completed", record.Status)
@@ -165,11 +171,12 @@ func TestConversationArchiveInterruptedUploadedCleanupRetainsDownload(t *testing
 
 type archiveCatalogFailureRepo struct {
 	SettingRepository
-	failNext bool
+	failNext        bool
+	unavailableWhen func(string) bool
 }
 
 func (r *archiveCatalogFailureRepo) Set(ctx context.Context, key, value string) error {
-	if key == settingKeyConversationArchives && r.failNext {
+	if key == settingKeyConversationArchives && (r.failNext || (r.unavailableWhen != nil && r.unavailableWhen(value))) {
 		r.failNext = false
 		return errors.New("catalog persistence unavailable")
 	}
@@ -180,7 +187,10 @@ func TestConversationArchiveCatalogFailureNeverDeletesSource(t *testing.T) {
 	s, settings, store := newConversationArchiveTestService(t)
 	record := &ConversationArchiveRecord{ID: "catalog-failure", Status: "running", S3Key: "archive.jsonl.gz", ManifestKey: "archive.metadata.json", StartedAt: time.Now().Format(time.RFC3339), DeleteAfterBackup: true}
 	require.NoError(t, s.saveConversationArchive(context.Background(), record, true))
-	s.settingRepo = &archiveCatalogFailureRepo{SettingRepository: settings, failNext: true}
+	s.settingRepo = &archiveCatalogFailureRepo{SettingRepository: settings, unavailableWhen: func(value string) bool {
+		var records []ConversationArchiveRecord
+		return json.Unmarshal([]byte(value), &records) == nil && len(records) == 1 && records[0].Status == "running" && records[0].Phase == "cleanup"
+	}}
 	repo := &archiveRepoStub{ids: []int64{7}, rows: []json.RawMessage{json.RawMessage(`{"id":7}`)}}
 	s.executeConversationArchive(repo, store, ConversationLogFilters{}, record)
 	require.Equal(t, "failed", record.Status)
@@ -433,7 +443,7 @@ func TestConversationArchiveEntityTooLargePreservesOriginalErrorAndSource(t *tes
 	repo := &archiveRepoStub{ids: []int64{1}, rows: []json.RawMessage{json.RawMessage(`{"id":1}`)}}
 	record := &ConversationArchiveRecord{ID: "large", Status: "running", S3Key: "data", ManifestKey: "metadata", DeleteAfterBackup: true}
 	require.NoError(t, s.saveConversationArchive(context.Background(), record, true))
-	err := s.runConversationArchive(context.Background(), repo, &archiveUploadErrorStore{store, cause}, ConversationLogFilters{}, record)
+	err := s.runConversationArchive(context.Background(), repo, &archiveUploadErrorStore{store, cause}, ConversationLogFilters{}, record, &conversationArchiveProgress{})
 	require.ErrorIs(t, err, cause)
 	require.ErrorContains(t, err, "EntityTooLarge")
 	require.Empty(t, repo.deleted)

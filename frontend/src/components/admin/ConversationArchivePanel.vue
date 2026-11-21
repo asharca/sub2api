@@ -29,12 +29,25 @@
         <tbody>
           <tr v-for="record in records" :key="record.id" class="border-b dark:border-dark-700">
             <td class="max-w-xs p-2"><p>{{ record.file_name || record.id }}</p><p class="mt-1 text-gray-500">{{ new Date(record.started_at).toLocaleString() }}</p><details class="mt-1"><summary>{{ text('details') }}</summary><pre class="mt-1 whitespace-pre-wrap break-all">{{ JSON.stringify(record.filters, null, 2) }}</pre><p class="break-all">SHA256: {{ record.sha256 || '—' }}</p></details></td>
-            <td class="max-w-xs p-2"><p :class="record.status === 'failed' || record.status === 'cleanup_failed' ? 'text-red-600' : ''">{{ text(record.status) }}</p><p v-if="record.error_message" class="mt-1 break-words text-red-600">{{ record.error_message }}</p><p v-if="isTooLarge(record)" class="mt-1 break-words text-gray-500">{{ text('tooLargeHint') }}</p></td>
+            <td class="max-w-xs p-2">
+              <p :class="record.status === 'failed' || record.status === 'cleanup_failed' ? 'text-red-600' : ''">{{ text(record.status) }}</p>
+              <div class="mt-1 space-y-0.5 text-gray-500">
+                <p v-if="isActive(record) && record.phase">{{ text(`phase.${record.phase}`) }}</p>
+                <p v-if="record.progress_rows != null">{{ text('scannedRows', { rows: n(record.progress_rows) }) }}</p>
+                <p v-if="record.progress_bytes != null">{{ text('compressedSize', { size: formatBytes(record.progress_bytes) }) }}</p>
+                <p v-if="record.uploaded_bytes != null || record.upload_total_bytes != null">{{ uploadProgress(record) }}</p>
+                <progress v-if="isActive(record) && record.phase === 'upload' && (record.upload_total_bytes ?? 0) > 0" class="w-full" :value="record.uploaded_bytes ?? 0" :max="record.upload_total_bytes" :aria-label="text('phase.upload')" />
+                <p v-if="isActive(record) && record.phase === 'cleanup' && record.can_cancel !== true">{{ text('cleanupCannotCancel') }}</p>
+              </div>
+              <p v-if="record.error_message" class="mt-1 break-words text-red-600">{{ record.error_message }}</p>
+              <p v-if="isTooLarge(record)" class="mt-1 break-words text-gray-500">{{ text('tooLargeHint') }}</p>
+            </td>
             <td class="p-2">{{ record.record_count }}</td><td class="p-2">{{ record.deleted_count }}</td><td class="p-2">{{ (record.size_bytes / 1024 / 1024).toFixed(2) }} MiB</td>
             <td class="min-w-[10rem] p-2"><div class="flex flex-wrap gap-1">
               <button v-if="record.status === 'completed' || record.status === 'cleanup_failed'" type="button" class="btn btn-secondary btn-xs" :disabled="busyId !== ''" @click="download(record.id)">{{ t('admin.backup.actions.download') }}</button>
               <button v-if="record.status === 'failed'" type="button" class="btn btn-secondary btn-xs" :disabled="busyId !== '' || creating || downloading || disabled" @click="retry(record)">{{ text(busyId === record.id && busyAction === 'retry' ? 'retrying' : 'retry') }}</button>
-              <button v-if="record.status !== 'running'" type="button" class="btn btn-danger btn-xs" :disabled="busyId !== ''" @click="remove(record)">{{ text(busyId === record.id && busyAction === 'remove' ? 'removing' : 'remove') }}</button>
+              <button v-if="record.can_cancel === true" type="button" class="btn btn-danger btn-xs" :disabled="busyId !== '' || creating || downloading" @click="cancel(record)">{{ text(busyId === record.id && busyAction === 'cancel' ? 'requestingCancel' : 'cancel') }}</button>
+              <button v-if="!isActive(record)" type="button" class="btn btn-danger btn-xs" :disabled="busyId !== ''" @click="remove(record)">{{ text(busyId === record.id && busyAction === 'remove' ? 'removing' : 'remove') }}</button>
             </div></td>
           </tr>
         </tbody>
@@ -58,8 +71,8 @@ import BaseDialog from '@/components/common/BaseDialog.vue'
 
 const props = defineProps<{ getFilters: () => ConversationLogQueryParams; disabled?: boolean }>()
 const emit = defineEmits<{ cleaned: [] }>()
-const { t } = useI18n()
-const text = (key: string) => t(`admin.backup.conversationArchive.${key}`)
+const { t, n } = useI18n()
+const text = (key: string, named: Record<string, string> = {}) => t(`admin.backup.conversationArchive.${key}`, named)
 const stepUp = useStepUp()
 const visible = ref(false)
 const records = ref<ConversationArchive[]>([])
@@ -68,12 +81,34 @@ const downloading = ref(false)
 const loading = ref(false)
 const error = ref('')
 const busyId = ref('')
-const busyAction = ref<'retry' | 'remove' | ''>('')
+const busyAction = ref<'retry' | 'remove' | 'cancel' | ''>('')
 let disposed = false
 let timer: ReturnType<typeof setTimeout> | undefined
 let catalogRevision = 0
 let refreshQueued = false
 const downloadURLs = new Map<string, ReturnType<typeof setTimeout>>()
+
+function isActive(record: ConversationArchive) {
+  return record.status === 'running' || record.status === 'cancelling'
+}
+
+function formatBytes(bytes: number) {
+  const mib = 1024 * 1024
+  const gib = 1024 * mib
+  if (bytes >= gib) return `${n(bytes / gib, { maximumFractionDigits: 2 })} GiB`
+  return bytes < mib ? `${n(bytes)} B` : `${n(bytes / mib, { maximumFractionDigits: 2 })} MiB`
+}
+
+function uploadProgress(record: ConversationArchive) {
+  const sent = record.uploaded_bytes
+  const total = record.upload_total_bytes
+  if (sent == null) return total == null ? '' : text('uploadTotal', { total: formatBytes(total) })
+  if (total == null) return text('uploadedSize', { size: formatBytes(sent) })
+  const amounts = { sent: formatBytes(sent), total: formatBytes(total) }
+  if (total <= 0) return text('uploadAmounts', amounts)
+  const percent = n(Math.min(1, Math.max(0, sent / total)), { style: 'percent', maximumFractionDigits: 1 })
+  return text('uploadProgress', { ...amounts, percent })
+}
 
 function report(err: unknown) {
   if (isStepUpCancelled(err)) return
@@ -99,9 +134,9 @@ async function refresh() {
   try {
     const next = await conversationArchivesAPI.list()
     if (disposed || revision !== catalogRevision) return
-    const cleaning = new Set(records.value.filter(record => record.status === 'running' && record.delete_after_backup).map(record => record.id))
+    const cleaning = new Set(records.value.filter(record => isActive(record) && record.delete_after_backup).map(record => record.id))
     records.value = next
-    if (next.some(record => cleaning.has(record.id) && record.status !== 'running' && record.deleted_count > 0)) emit('cleaned')
+    if (next.some(record => cleaning.has(record.id) && !isActive(record) && record.deleted_count > 0)) emit('cleaned')
   } catch (err) {
     report(err)
   } finally {
@@ -109,7 +144,7 @@ async function refresh() {
     if (!disposed && refreshQueued) {
       refreshQueued = false
       void refresh()
-    } else if (!disposed && records.value.some(record => record.status === 'running')) {
+    } else if (!disposed && records.value.some(isActive)) {
       timer = setTimeout(refresh, 2000)
     }
   }
@@ -207,8 +242,26 @@ async function retry(record: ConversationArchive) {
   }
 }
 
+async function cancel(record: ConversationArchive) {
+  if (busyId.value || creating.value || downloading.value || disposed || record.can_cancel !== true) return
+  busyId.value = record.id
+  busyAction.value = 'cancel'
+  error.value = ''
+  try {
+    await stepUp.run(() => conversationArchivesAPI.cancel(record.id))
+    if (disposed) return
+    catalogRevision += 1
+  } catch (err) {
+    report(err)
+  } finally {
+    if (!disposed) await refresh()
+    busyId.value = ''
+    busyAction.value = ''
+  }
+}
+
 async function remove(record: ConversationArchive) {
-  if (busyId.value || disposed || record.status === 'running') return
+  if (busyId.value || disposed || isActive(record)) return
   if (!window.confirm(text(record.deleted_count > 0 ? 'confirmRemoveCleaned' : 'confirmRemove'))) return
   busyId.value = record.id
   busyAction.value = 'remove'

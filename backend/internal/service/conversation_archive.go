@@ -111,6 +111,12 @@ type ConversationArchiveRecord struct {
 	SHA256            string         `json:"sha256"`
 	RecordCount       int64          `json:"record_count"`
 	DeletedCount      int64          `json:"deleted_count"`
+	Phase             string         `json:"phase,omitempty"`
+	ProgressRows      int64          `json:"progress_rows,omitempty"`
+	ProgressBytes     int64          `json:"progress_bytes,omitempty"`
+	UploadTotalBytes  int64          `json:"upload_total_bytes,omitempty"`
+	UploadedBytes     int64          `json:"uploaded_bytes,omitempty"`
+	CanCancel         bool           `json:"can_cancel,omitempty"`
 	Filters           map[string]any `json:"filters"`
 	DeleteAfterBackup bool           `json:"delete_after_backup"`
 	StartedAt         string         `json:"started_at"`
@@ -254,6 +260,7 @@ func (s *BackupService) startConversationArchive(ctx context.Context, logs *Conv
 	name := fmt.Sprintf("conversations_%s_%s.jsonl.gz", now.Format("20060102_150405"), id)
 	record := &ConversationArchiveRecord{
 		ID: id, Status: "running", FileName: name,
+		Phase: "snapshot", CanCancel: true,
 		S3Key:   s.buildS3Key(cfg, "conversations/"+name),
 		Filters: conversationArchiveFilters(filters), DeleteAfterBackup: deleteAfterBackup,
 		StartedAt:       now.Format(time.RFC3339),
@@ -280,10 +287,12 @@ func (s *BackupService) finishConversationArchive() {
 }
 
 func (s *BackupService) executeConversationArchive(repo ConversationArchiveRepository, store BackupObjectStore, filters ConversationLogFilters, record *ConversationArchiveRecord) {
-	ctx := s.bgCtx
+	ctx, cancel := context.WithCancelCause(s.bgCtx)
+	defer cancel(nil)
+	progress := &conversationArchiveProgress{}
 	heartbeatCtx, stopHeartbeat := context.WithCancel(ctx)
 	heartbeatDone := make(chan struct{})
-	go s.runConversationArchiveHeartbeat(heartbeatCtx, record.ID, heartbeatDone)
+	go s.monitorConversationArchive(heartbeatCtx, record.ID, progress, cancel, heartbeatDone)
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			if record.SHA256 != "" && record.DeleteAfterBackup {
@@ -295,6 +304,8 @@ func (s *BackupService) executeConversationArchive(repo ConversationArchiveRepos
 		}
 		stopHeartbeat()
 		<-heartbeatDone
+		progress.apply(record)
+		record.CanCancel = false
 		record.FinishedAt = time.Now().UTC().Format(time.RFC3339)
 		persistCtx, done := context.WithTimeout(context.Background(), 30*time.Second)
 		defer done()
@@ -302,56 +313,16 @@ func (s *BackupService) executeConversationArchive(repo ConversationArchiveRepos
 			logger.LegacyPrintf("service.conversation_archive", "save archive %s outcome: %v", record.ID, err)
 		}
 	}()
-	if err := s.runConversationArchive(ctx, repo, store, filters, record); err != nil {
-		if record.Status != "cleanup_failed" {
+	if err := s.runConversationArchive(ctx, repo, store, filters, record, progress); err != nil {
+		if errors.Is(err, errConversationArchiveCancelled) || errors.Is(context.Cause(ctx), errConversationArchiveCancelled) {
+			record.Status = "cancelled"
+		} else if record.Status != "cleanup_failed" {
 			record.Status = "failed"
 		}
 		record.ErrorMessage = err.Error()
 		return
 	}
 	record.Status = "completed"
-}
-
-// Heartbeats track worker liveness, not total job duration or row throughput.
-// Slow snapshots/uploads must remain running even if they take many hours.
-func (s *BackupService) runConversationArchiveHeartbeat(ctx context.Context, id string, done chan<- struct{}) {
-	defer close(done)
-	ticker := time.NewTicker(time.Minute)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			if err := s.touchConversationArchive(ctx, id); err != nil && ctx.Err() == nil {
-				logger.LegacyPrintf("service.conversation_archive", "refresh archive %s heartbeat: %v", id, err)
-			}
-		}
-	}
-}
-
-func (s *BackupService) touchConversationArchive(ctx context.Context, id string) error {
-	ctx, release, err := s.lockBackupRecordUpdates(ctx)
-	if err != nil {
-		return err
-	}
-	defer release()
-	records, err := s.loadConversationArchives(ctx)
-	if err != nil {
-		return err
-	}
-	for i := range records {
-		if records[i].ID != id || records[i].Status != "running" {
-			continue
-		}
-		records[i].LastHeartbeatAt = time.Now().UTC().Format(time.RFC3339)
-		data, err := json.Marshal(records)
-		if err != nil {
-			return err
-		}
-		return s.settingRepo.Set(ctx, settingKeyConversationArchives, string(data))
-	}
-	return nil
 }
 
 func conversationArchiveInterrupted(record *ConversationArchiveRecord, now time.Time) bool {
@@ -362,7 +333,7 @@ func conversationArchiveInterrupted(record *ConversationArchiveRecord, now time.
 	return backupOperationExpired(lastAlive, now)
 }
 
-func (s *BackupService) runConversationArchive(ctx context.Context, repo ConversationArchiveRepository, store BackupObjectStore, filters ConversationLogFilters, record *ConversationArchiveRecord) error {
+func (s *BackupService) runConversationArchive(ctx context.Context, repo ConversationArchiveRepository, store BackupObjectStore, filters ConversationLogFilters, record *ConversationArchiveRecord, progress *conversationArchiveProgress) error {
 	file, err := os.CreateTemp("", "conversation-archive-*.jsonl.gz")
 	if err != nil {
 		return err
@@ -379,8 +350,11 @@ func (s *BackupService) runConversationArchive(ctx context.Context, repo Convers
 		idWriter = bufio.NewWriter(ids)
 	}
 	hash := sha256.New()
-	compressed := gzip.NewWriter(io.MultiWriter(file, hash))
+	compressed := gzip.NewWriter(conversationArchiveProgressWriter{Writer: io.MultiWriter(file, hash), progress: progress})
 	err = repo.StreamConversationArchive(ctx, filters, func(id int64, raw json.RawMessage) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if _, err := compressed.Write(raw); err != nil {
 			return err
 		}
@@ -395,6 +369,7 @@ func (s *BackupService) runConversationArchive(ctx context.Context, repo Convers
 			}
 		}
 		record.RecordCount++
+		progress.rows.Store(record.RecordCount)
 		return nil
 	})
 	closeErr := compressed.Close()
@@ -419,15 +394,28 @@ func (s *BackupService) runConversationArchive(ctx context.Context, repo Convers
 	if err := file.Close(); err != nil {
 		return err
 	}
-	size, err := store.UploadFile(ctx, record.S3Key, file.Name(), "application/gzip")
+	record.UploadTotalBytes = info.Size()
+	if err := s.advanceConversationArchive(ctx, record, progress, "upload"); err != nil {
+		return fmt.Errorf("prepare conversation archive upload: %w", err)
+	}
+	var size int64
+	if u, ok := store.(conversationArchiveProgressUploader); ok {
+		size, err = u.UploadFileWithProgress(ctx, record.S3Key, file.Name(), "application/gzip", progress.uploaded.Store)
+	} else {
+		size, err = store.UploadFile(ctx, record.S3Key, file.Name(), "application/gzip")
+	}
 	if err != nil {
 		return fmt.Errorf("upload conversation archive: %w", err)
 	}
 	// A successful upload may already have left an object even if size validation
 	// fails. Retain that evidence so deletion cannot silently discard its catalog.
 	record.SizeBytes = size
+	progress.uploaded.Store(size)
 	if size != info.Size() {
 		return fmt.Errorf("conversation archive upload size mismatch: expected %d, got %d", info.Size(), size)
+	}
+	if err := s.advanceConversationArchive(ctx, record, progress, "finalize"); err != nil {
+		return fmt.Errorf("finalize uploaded conversation archive: %w", err)
 	}
 	record.SHA256 = hex.EncodeToString(hash.Sum(nil))
 	// The sidecar describes the immutable uploaded snapshot, not mutable cleanup
@@ -444,7 +432,11 @@ func (s *BackupService) runConversationArchive(ctx context.Context, repo Convers
 	if _, err := store.Upload(ctx, record.ManifestKey, bytes.NewReader(manifest), "application/json"); err != nil {
 		return fmt.Errorf("upload conversation archive metadata: %w", err)
 	}
-	if err := s.saveConversationArchive(ctx, record, false); err != nil {
+	phase := "finalize"
+	if ids != nil {
+		phase = "cleanup"
+	}
+	if err := s.advanceConversationArchive(ctx, record, progress, phase); err != nil {
 		return fmt.Errorf("persist uploaded conversation archive: %w", err)
 	}
 	if ids != nil {
@@ -494,10 +486,17 @@ func (s *BackupService) saveConversationArchiveLocked(ctx context.Context, recor
 	}
 	found := false
 	for i := range records {
-		if create && records[i].Status == "running" && !conversationArchiveInterrupted(&records[i], time.Now()) {
+		if create && conversationArchiveActive(records[i].Status) && !conversationArchiveInterrupted(&records[i], time.Now()) {
 			return ErrBackupInProgress
 		}
 		if records[i].ID == record.ID {
+			if records[i].Status == "cancelling" || records[i].Status == "cancelled" {
+				if record.Status == "running" {
+					return errConversationArchiveCancelled
+				}
+				record.Status = "cancelled"
+				record.CanCancel = false
+			}
 			if records[i].LastHeartbeatAt != "" {
 				record.LastHeartbeatAt = records[i].LastHeartbeatAt
 			}
@@ -542,7 +541,7 @@ func (s *BackupService) DeleteConversationArchive(ctx context.Context, id string
 		return ErrBackupNotFound
 	}
 	record := &records[index]
-	if record.Status == "running" {
+	if conversationArchiveActive(record.Status) {
 		return ErrBackupInProgress
 	}
 	cfg, err := s.loadS3Config(ctx)
@@ -590,13 +589,19 @@ func (s *BackupService) ListConversationArchives(ctx context.Context) ([]Convers
 	changed := false
 	for i := range records {
 		r := &records[i]
-		if r.Status != "running" || !conversationArchiveInterrupted(r, time.Now()) {
+		if !conversationArchiveActive(r.Status) || !conversationArchiveInterrupted(r, time.Now()) {
 			continue
 		}
+		wasCancelling := r.Status == "cancelling"
 		r.Status = "failed"
+		r.CanCancel = false
 		r.ErrorMessage = "archive operation interrupted before completion; source cleanup was not confirmed"
 		if r.SHA256 != "" {
 			r.Status = "cleanup_failed"
+		}
+		if wasCancelling {
+			r.Status = "cancelled"
+			r.ErrorMessage = "archive interrupted while cancelling; object storage cleanup was not confirmed"
 		}
 		r.FinishedAt = time.Now().UTC().Format(time.RFC3339)
 		changed = true
@@ -631,7 +636,7 @@ func (s *BackupService) GetConversationArchiveDownloadURL(ctx context.Context, i
 	if err != nil {
 		return "", err
 	}
-	if record.SHA256 == "" || record.Status == "running" {
+	if record.SHA256 == "" || conversationArchiveActive(record.Status) || record.Status == "cancelled" {
 		return "", infraerrors.BadRequest("CONVERSATION_ARCHIVE_NOT_READY", "conversation archive is not ready for download")
 	}
 	cfg, err := s.loadS3Config(ctx)

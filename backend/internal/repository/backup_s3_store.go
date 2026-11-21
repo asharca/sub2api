@@ -61,6 +61,12 @@ func (s *S3BackupStore) Upload(ctx context.Context, key string, body io.Reader, 
 }
 
 func (s *S3BackupStore) UploadFile(ctx context.Context, key string, filePath string, contentType string) (int64, error) {
+	return s.UploadFileWithProgress(ctx, key, filePath, contentType, nil)
+}
+
+// UploadFileWithProgress reports cumulative bytes after each confirmed part or successful single PUT.
+// The last part is reported before the multipart upload is committed; check the returned error for success.
+func (s *S3BackupStore) UploadFileWithProgress(ctx context.Context, key, filePath, contentType string, progress func(int64)) (int64, error) {
 	file, err := os.Open(filePath)
 	if err != nil {
 		return 0, fmt.Errorf("open upload file: %w", err)
@@ -76,7 +82,7 @@ func (s *S3BackupStore) UploadFile(ctx context.Context, key string, filePath str
 	finish := servertiming.ObserveDependency(ctx, "s3")
 	if sizeBytes > archivePartSize {
 		defer finish()
-		return s.uploadMultipart(ctx, key, file, sizeBytes, contentType)
+		return s.uploadMultipart(ctx, key, file, sizeBytes, contentType, progress)
 	}
 	_, err = s.client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket:        &s.bucket,
@@ -88,6 +94,9 @@ func (s *S3BackupStore) UploadFile(ctx context.Context, key string, filePath str
 	finish()
 	if err != nil {
 		return 0, fmt.Errorf("S3 PutObject file: %w", err)
+	}
+	if progress != nil {
+		progress(sizeBytes)
 	}
 	return sizeBytes, nil
 }

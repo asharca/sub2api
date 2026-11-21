@@ -3,7 +3,13 @@ import type { ConversationLogQueryParams } from './conversationLogs'
 
 export interface ConversationArchive {
   id: string
-  status: 'running' | 'completed' | 'failed' | 'cleanup_failed'
+  status: 'running' | 'cancelling' | 'cancelled' | 'completed' | 'failed' | 'cleanup_failed'
+  phase?: 'snapshot' | 'upload' | 'finalize' | 'cleanup'
+  progress_rows?: number
+  progress_bytes?: number
+  uploaded_bytes?: number
+  upload_total_bytes?: number
+  can_cancel?: boolean
   file_name: string
   size_bytes: number
   sha256: string
@@ -49,6 +55,9 @@ export const conversationArchivesAPI = {
   async retry(id: string) {
     const { data } = await apiClient.post<ConversationArchive>(`${base}/${encodeURIComponent(id)}/retry`, {})
     return data
+  },
+  async cancel(id: string) {
+    await apiClient.post(`${base}/${encodeURIComponent(id)}/cancel`, {})
   },
   async remove(id: string) {
     await apiClient.delete(`${base}/${encodeURIComponent(id)}`)

@@ -73,6 +73,15 @@ func (h *ConversationLogHandler) RetryArchive(c *gin.Context) {
 	response.Accepted(c, record)
 }
 
+func (h *ConversationLogHandler) CancelArchive(c *gin.Context) {
+	record, err := h.backupService.CancelConversationArchive(c.Request.Context(), c.Param("id"))
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Accepted(c, record)
+}
+
 func (h *ConversationLogHandler) DeleteArchive(c *gin.Context) {
 	if err := h.backupService.DeleteConversationArchive(c.Request.Context(), c.Param("id")); err != nil {
 		response.ErrorFrom(c, err)

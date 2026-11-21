@@ -836,6 +836,7 @@ func registerConversationLogRoutes(admin *gin.RouterGroup, h *handler.Handlers, 
 		logs.GET("/archives", h.Admin.ConversationLog.ListArchives)
 		logs.GET("/archives/:id", h.Admin.ConversationLog.GetArchive)
 		logs.POST("/archives/:id/retry", gin.HandlerFunc(stepUpAuth), h.Admin.ConversationLog.RetryArchive)
+		logs.POST("/archives/:id/cancel", gin.HandlerFunc(stepUpAuth), h.Admin.ConversationLog.CancelArchive)
 		logs.DELETE("/archives/:id", gin.HandlerFunc(stepUpAuth), h.Admin.ConversationLog.DeleteArchive)
 		logs.GET("/archives/:id/download", gin.HandlerFunc(stepUpAuth), h.Admin.ConversationLog.GetArchiveDownloadURL)
 		logs.GET("", h.Admin.ConversationLog.List)

@@ -53,13 +53,19 @@ func TestArchiveMultipart(t *testing.T) {
 			require.NoError(t, f.Truncate(archivePartSize+1))
 			require.NoError(t, f.Close())
 			store := S3BackupStore{client: client, bucket: "bucket"}
-			n, err := store.UploadFile(ctx, "archive.gz", f.Name(), "application/gzip")
+			var confirmed []int64
+			n, err := store.UploadFileWithProgress(ctx, "archive.gz", f.Name(), "application/gzip", func(n int64) {
+				confirmed = append(confirmed, n)
+			})
 			if failure {
 				require.Error(t, err)
+				require.Zero(t, n)
+				require.Equal(t, []int64{archivePartSize}, confirmed)
 				require.Equal(t, []string{"start", "1", "2", "abort"}, calls)
 			} else {
 				require.NoError(t, err)
 				require.Equal(t, archivePartSize+1, n)
+				require.Equal(t, []int64{archivePartSize, archivePartSize + 1}, confirmed)
 				require.Equal(t, []string{"start", "1", "2", "complete"}, calls)
 			}
 		})

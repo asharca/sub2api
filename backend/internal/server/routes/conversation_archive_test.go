@@ -29,6 +29,7 @@ func TestConversationArchiveSensitiveOperationsRequireStepUp(t *testing.T) {
 		{http.MethodPost, "/admin/conversation-logs/archives", `{"delete_after_backup":true}`},
 		{http.MethodGet, "/admin/conversation-logs/archives/archive-id/download", ""},
 		{http.MethodPost, "/admin/conversation-logs/archives/archive-id/retry", `{}`},
+		{http.MethodPost, "/admin/conversation-logs/archives/archive-id/cancel", `{}`},
 		{http.MethodDelete, "/admin/conversation-logs/archives/archive-id", ""},
 	} {
 		recorder := httptest.NewRecorder()
@@ -36,5 +37,5 @@ func TestConversationArchiveSensitiveOperationsRequireStepUp(t *testing.T) {
 		router.ServeHTTP(recorder, request)
 		require.Equal(t, http.StatusUnauthorized, recorder.Code)
 	}
-	require.Equal(t, 6, gateCalls)
+	require.Equal(t, 7, gateCalls)
 }

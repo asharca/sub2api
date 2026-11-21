@@ -13,7 +13,7 @@ import (
 
 const archivePartSize int64 = 64 << 20
 
-func (s *S3BackupStore) uploadMultipart(ctx context.Context, key string, file io.ReaderAt, size int64, contentType string) (_ int64, err error) {
+func (s *S3BackupStore) uploadMultipart(ctx context.Context, key string, file io.ReaderAt, size int64, contentType string, progress func(int64)) (_ int64, err error) {
 	// S3 accepts at most 10,000 parts; use larger sections when necessary.
 	partSize := max(archivePartSize, (size-1)/10000+1)
 	if partSize > 5<<30 {
@@ -48,6 +48,9 @@ func (s *S3BackupStore) uploadMultipart(ctx context.Context, key string, file io
 			return 0, fmt.Errorf("upload part %d: missing ETag", part)
 		}
 		parts = append(parts, types.CompletedPart{ETag: out.ETag, PartNumber: &part, ChecksumCRC32: out.ChecksumCRC32, ChecksumCRC32C: out.ChecksumCRC32C, ChecksumSHA1: out.ChecksumSHA1, ChecksumSHA256: out.ChecksumSHA256, ChecksumCRC64NVME: out.ChecksumCRC64NVME})
+		if progress != nil {
+			progress(off + n)
+		}
 	}
 	_, err = s.client.CompleteMultipartUpload(ctx, &s3.CompleteMultipartUploadInput{Bucket: &s.bucket, Key: &key, UploadId: id, MultipartUpload: &types.CompletedMultipartUpload{Parts: parts}})
 	if err != nil {
