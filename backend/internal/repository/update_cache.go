@@ -2,13 +2,14 @@ package repository
 
 import (
 	"context"
+	"runtime"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/redis/go-redis/v9"
 )
 
-const updateCacheKey = "update:latest"
+const updateCacheKey = "update:latest:standalone:" + runtime.GOOS + ":" + runtime.GOARCH
 
 type updateCache struct {
 	rdb *redis.Client

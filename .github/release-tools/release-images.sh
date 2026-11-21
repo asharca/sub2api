@@ -2,42 +2,17 @@
 set -euo pipefail
 : "${RELEASE_VERSION:?}" "${RELEASE_SHA:?}" "${GITHUB_REPOSITORY:?}" "${RUNNER_TEMP:?}"
 owner=${GITHUB_REPOSITORY%%/*}
-registries=("ghcr.io/${owner,,}/sub2api")
-feature=false
-if [[ $RELEASE_VERSION == *-asharca.* || $RELEASE_VERSION == *-ashark.* ]]; then feature=true; fi
-if [[ $feature != true && ${SIMPLE_RELEASE:-false} != true && ${DOCKERHUB_USERNAME:-skip} != skip ]]; then
-  registries+=("${DOCKERHUB_USERNAME}/sub2api")
+registry="ghcr.io/${owner,,}/sub2api"
+arch=amd64
+args=(--platform "linux/$arch" --file ".release-context/$arch/Dockerfile"
+  --label "org.opencontainers.image.version=$RELEASE_VERSION"
+  --label "org.opencontainers.image.revision=$RELEASE_SHA"
+  --label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY"
+  --tag "$registry:$RELEASE_VERSION-$arch"
+  --tag "$registry:$RELEASE_VERSION")
+if [[ ${DRY_RUN:-false} == true ]]; then
+  args+=(--output "type=oci,dest=$RUNNER_TEMP/sub2api-$arch.oci.tar")
+else
+  args+=(--push)
 fi
-arches=(amd64 arm64)
-if [[ $feature == true || ${SIMPLE_RELEASE:-false} == true ]]; then arches=(amd64); fi
-for arch in "${arches[@]}"; do
-  args=(--platform "linux/$arch" --file ".release-context/$arch/Dockerfile"
-    --label "org.opencontainers.image.version=$RELEASE_VERSION"
-    --label "org.opencontainers.image.revision=$RELEASE_SHA"
-    --label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY")
-  for registry in "${registries[@]}"; do
-    args+=(--tag "$registry:$RELEASE_VERSION-$arch")
-    if [[ $feature == true || ${SIMPLE_RELEASE:-false} == true ]]; then
-      args+=(--tag "$registry:$RELEASE_VERSION")
-      if [[ $RELEASE_VERSION != *-* ]]; then args+=(--tag "$registry:latest"); fi
-    fi
-  done
-  if [[ ${DRY_RUN:-false} == true ]]; then
-    args+=(--output "type=oci,dest=$RUNNER_TEMP/sub2api-$arch.oci.tar")
-  else
-    args+=(--push)
-  fi
-  docker buildx build "${args[@]}" ".release-context/$arch"
-done
-if [[ $feature != true && ${DRY_RUN:-false} != true && ${SIMPLE_RELEASE:-false} != true ]]; then
-  major=${RELEASE_VERSION%%.*}
-  minor=${RELEASE_VERSION#*.}; minor=${minor%%.*}
-  for registry in "${registries[@]}"; do
-    tags=(--tag "$registry:$RELEASE_VERSION")
-    if [[ $RELEASE_VERSION != *-* ]]; then
-      tags+=(--tag "$registry:latest" --tag "$registry:$major.$minor" --tag "$registry:$major")
-    fi
-    docker buildx imagetools create "${tags[@]}" \
-      "$registry:$RELEASE_VERSION-amd64" "$registry:$RELEASE_VERSION-arm64"
-  done
-fi
+docker buildx build "${args[@]}" ".release-context/$arch"

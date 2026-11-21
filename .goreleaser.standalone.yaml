@@ -28,7 +28,7 @@ builds:
 
 archives:
   - id: default
-    format: tar.gz
+    formats: [tar.gz]
     name_template: >-
       {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
     files:
@@ -72,7 +72,7 @@ release:
   target_commitish: "{{ .Env.GITHUB_RELEASE_TARGET_COMMITISH }}"
   name_template: "{{ .Tag }}"
   header: |
-    > Sub2API feature release for `feat/conversation-storage`
+    > Sub2API standalone release from `release/standalone`
 
     {{ .Env.TAG_MESSAGE }}
 

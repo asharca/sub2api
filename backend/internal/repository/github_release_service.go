@@ -14,6 +14,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/httpclient"
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"golang.org/x/mod/semver"
 )
 
 type githubReleaseClient struct {
@@ -160,75 +161,82 @@ func (c *githubReleaseClient) FetchRecentReleases(ctx context.Context, repo, bra
 	if perPage > 100 {
 		perPage = 100 // GitHub API hard limit
 	}
-	url := fmt.Sprintf("https://api.github.com/repos/%s/releases?per_page=%d", repo, perPage)
+	if strings.TrimSpace(branch) == "" {
+		url := fmt.Sprintf("https://api.github.com/repos/%s/releases?per_page=%d", repo, perPage)
+		releases, _, err := c.fetchReleases(ctx, url)
+		return releases, err
+	}
 
-	releases, err := c.fetchReleases(ctx, url)
+	var filtered []*service.GitHubRelease
+	err := c.walkStandaloneReleases(ctx, repo, branch, func(r *service.GitHubRelease) bool {
+		filtered = append(filtered, r)
+		return len(filtered) < perPage
+	})
 	if err != nil {
 		return nil, err
-	}
-
-	if strings.TrimSpace(branch) == "" {
-		return releases, nil
-	}
-
-	filtered := make([]*service.GitHubRelease, 0, len(releases))
-	for _, release := range releases {
-		if isAsharcaBranchRelease(release, branch) {
-			filtered = append(filtered, release)
-		}
 	}
 	return filtered, nil
 }
 
 func (c *githubReleaseClient) fetchLatestReleaseForBranch(ctx context.Context, repo, branch string) (*service.GitHubRelease, error) {
-	url := fmt.Sprintf("https://api.github.com/repos/%s/releases?per_page=50", repo)
-
-	releases, err := c.fetchReleases(ctx, url)
+	var latest *service.GitHubRelease
+	err := c.walkStandaloneReleases(ctx, repo, branch, func(r *service.GitHubRelease) bool {
+		if latest == nil || semver.Compare(r.TagName, latest.TagName) > 0 {
+			latest = r
+		}
+		return true
+	})
 	if err != nil {
 		return nil, err
 	}
-
-	for _, release := range releases {
-		if isAsharcaBranchRelease(release, branch) {
-			return release, nil
-		}
-	}
-
-	return nil, fmt.Errorf("no asharca release found for branch %q", branch)
+	// A successful scan with no installable release is distinct from an API
+	// failure: it must invalidate any previously cached update offer.
+	return latest, nil
 }
 
-func (c *githubReleaseClient) fetchReleases(ctx context.Context, url string) ([]*service.GitHubRelease, error) {
+// GitHub mixes channels and orders by date, not version. Don't stop at a
+// page of legacy builds, or assume the first usable tag is the highest.
+func (c *githubReleaseClient) walkStandaloneReleases(ctx context.Context, repo, branch string, visit func(*service.GitHubRelease) bool) error {
+	branch = strings.TrimSpace(branch)
+	for page := 1; ; page++ {
+		url := fmt.Sprintf("https://api.github.com/repos/%s/releases?per_page=100&page=%d", repo, page)
+		releases, more, err := c.fetchReleases(ctx, url)
+		if err != nil {
+			return err
+		}
+		for _, r := range releases {
+			if r != nil && r.TargetCommitish == branch && r.IsInstallableStandaloneRelease() && !visit(r) {
+				return nil
+			}
+		}
+		if !more {
+			return nil
+		}
+	}
+}
+
+func (c *githubReleaseClient) fetchReleases(ctx context.Context, url string) ([]*service.GitHubRelease, bool, error) {
 	req, err := c.newAPIRequest(ctx, url)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("GitHub API returned %d", resp.StatusCode)
+		return nil, false, fmt.Errorf("GitHub API returned %d", resp.StatusCode)
 	}
 
 	var releases []*service.GitHubRelease
 	if err := json.NewDecoder(resp.Body).Decode(&releases); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
-	return releases, nil
-}
-
-func isAsharcaBranchRelease(release *service.GitHubRelease, branch string) bool {
-	if release == nil || release.Draft || release.Prerelease {
-		return false
-	}
-	if release.TargetCommitish != strings.TrimSpace(branch) {
-		return false
-	}
-	return strings.Contains(release.TagName, "-asharca.")
+	return releases, strings.Contains(resp.Header.Get("Link"), `rel="next"`), nil
 }
 
 func (c *githubReleaseClient) DownloadFile(ctx context.Context, url, dest string, maxSize int64) error {

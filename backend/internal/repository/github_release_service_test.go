@@ -3,14 +3,17 @@ package repository
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 )
@@ -390,104 +393,50 @@ func (s *GitHubReleaseServiceSuite) TestFetchRecentReleases_Success() {
 	require.Equal(s.T(), "v1.0.0", releases[2].TagName)
 }
 
-func (s *GitHubReleaseServiceSuite) TestFetchLatestRelease_FiltersByBranchAndAsharcaTag() {
-	releasesJSON := `[
-		{
-			"tag_name": "v1.0.1-asharca.1",
-			"name": "Wrong branch release",
-			"target_commitish": "main",
-			"html_url": "https://github.com/test/repo/releases/v1.0.1-asharca.1",
-			"assets": []
-		},
-		{
-			"tag_name": "v1.0.0-asharca.2",
-			"name": "Branch prerelease",
-			"target_commitish": "feat/conversation-storage",
-			"prerelease": true,
-			"html_url": "https://github.com/test/repo/releases/v1.0.0-asharca.2",
-			"assets": []
-		},
-		{
-			"tag_name": "v1.0.0",
-			"name": "Branch release without suffix",
-			"target_commitish": "feat/conversation-storage",
-			"html_url": "https://github.com/test/repo/releases/v1.0.0",
-			"assets": []
-		},
-		{
-			"tag_name": "v1.0.0-asharca.1",
-			"name": "v1.0.0-asharca.1",
-			"target_commitish": "feat/conversation-storage",
-			"html_url": "https://github.com/test/repo/releases/v1.0.0-asharca.1",
-			"assets": [
-				{
-					"name": "app-linux-amd64.tar.gz",
-					"browser_download_url": "https://github.com/test/repo/releases/download/v1.0.0-asharca.1/app-linux-amd64.tar.gz"
-				}
-			]
-		}
-	]`
-
-	s.srv = newLocalTestServer(s.T(), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(s.T(), "/repos/test/repo/releases", r.URL.Path)
-		require.Equal(s.T(), "50", r.URL.Query().Get("per_page"))
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(releasesJSON))
-	}))
-
-	s.client = &githubReleaseClient{
-		httpClient: &http.Client{
-			Transport: &testTransport{testServerURL: s.srv.URL},
-		},
-		downloadHTTPClient: &http.Client{},
+func TestGitHubReleaseClientStandaloneSelection(t *testing.T) {
+	const branch = "release/standalone"
+	release := func(tag, target string) *service.GitHubRelease {
+		archive := "sub2api_" + strings.TrimPrefix(tag, "v") + "_" + runtime.GOOS + "_" + runtime.GOARCH + ".tar.gz"
+		base := "https://github.com/test/repo/releases/download/" + tag + "/"
+		return &service.GitHubRelease{TagName: tag, TargetCommitish: target, Assets: []service.GitHubAsset{
+			{Name: archive, BrowserDownloadURL: base + archive, Size: 1024},
+			{Name: "checksums.txt", BrowserDownloadURL: base + "checksums.txt", Size: 100},
+		}}
 	}
-
-	release, err := s.client.FetchLatestRelease(context.Background(), "test/repo", "feat/conversation-storage")
-	require.NoError(s.T(), err)
-	require.Equal(s.T(), "v1.0.0-asharca.1", release.TagName)
-	require.Equal(s.T(), "feat/conversation-storage", release.TargetCommitish)
-	require.Len(s.T(), release.Assets, 1)
-}
-
-func (s *GitHubReleaseServiceSuite) TestFetchRecentReleases_FiltersByBranchAndAsharcaTag() {
-	releasesJSON := `[
-		{
-			"tag_name": "v1.0.1-asharca.1",
-			"name": "Wrong branch release",
-			"target_commitish": "main"
-		},
-		{
-			"tag_name": "v1.0.0",
-			"name": "Branch release without suffix",
-			"target_commitish": "feat/conversation-storage"
-		},
-		{
-			"tag_name": "v1.0.0-asharca.1",
-			"name": "v1.0.0-asharca.1",
-			"target_commitish": "feat/conversation-storage"
-		}
-	]`
-
-	s.srv = newLocalTestServer(s.T(), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(s.T(), "/repos/test/repo/releases", r.URL.Path)
-		require.Equal(s.T(), "15", r.URL.Query().Get("per_page"))
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(releasesJSON))
-	}))
-
-	s.client = &githubReleaseClient{
-		httpClient: &http.Client{
-			Transport: &testTransport{testServerURL: s.srv.URL},
-		},
-		downloadHTTPClient: &http.Client{},
+	draft, prerelease := release("v3.0.0", branch), release("v2.0.0", branch)
+	draft.Draft, prerelease.Prerelease = true, true
+	pages := map[string][]*service.GitHubRelease{
+		"1": {nil, release("v9.9.9", "main"), release("v0.1.148-asharca.2", branch), release("v0.99.0", branch), draft},
+		"2": {release("v1.0.9", branch), release("v2.0.0-rc.1", branch), prerelease, {TagName: "v3.0.0", TargetCommitish: branch}},
+		"3": {release("v1.0.10", branch)},
 	}
-
-	releases, err := s.client.FetchRecentReleases(context.Background(), "test/repo", "feat/conversation-storage", 15)
-	require.NoError(s.T(), err)
-	require.Len(s.T(), releases, 1)
-	require.Equal(s.T(), "v1.0.0-asharca.1", releases[0].TagName)
+	c := newTestGitHubReleaseClient()
+	c.httpClient.Transport = githubReleaseRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		require.Equal(t, "/repos/test/repo/releases", req.URL.Path)
+		page := req.URL.Query().Get("page")
+		rows, ok := pages[page]
+		require.True(t, ok, "unexpected page %s", page)
+		header := make(http.Header)
+		if page != "3" {
+			header.Set("Link", `<https://api.github.com/repos/test/repo/releases>; rel="next"`)
+		}
+		body, err := json.Marshal(rows)
+		require.NoError(t, err)
+		return &http.Response{StatusCode: http.StatusOK, Header: header, Body: io.NopCloser(bytes.NewReader(body))}, nil
+	})
+	ctx := context.Background()
+	latest, err := c.FetchLatestRelease(ctx, "test/repo", branch)
+	require.NoError(t, err)
+	require.Equal(t, "v1.0.10", latest.TagName)
+	recent, err := c.FetchRecentReleases(ctx, "test/repo", branch, 15)
+	require.NoError(t, err)
+	require.Len(t, recent, 2)
+	require.Equal(t, "v1.0.9", recent[0].TagName)
+	require.Equal(t, "v1.0.10", recent[1].TagName)
+	// No eligible build must not fall back to another branch or /latest.
+	latest, err = c.FetchLatestRelease(ctx, "test/repo", "absent")
+	require.NoError(t, err)
+	require.Nil(t, latest)
 }
 
 func (s *GitHubReleaseServiceSuite) TestFetchRecentReleases_Non200() {

@@ -1,27 +1,26 @@
-# Release matrix
+# Standalone release
 
-The release workflow builds the frontend once, then runs each configured Go target on its own Linux runner. `CGO_ENABLED=0` permits cross-compilation. The target matrix is read from `.goreleaser.yaml`, including its exclusions; simple releases select Linux amd64 only.
+The fork starts its independent stable release series at `v1.0.0`. Publish from `asharca/sub2api` on `release/standalone`, not from `feat/conversation-storage` or either upstream repository. The release tag must be a bare `vMAJOR.MINOR.PATCH` with major ≥ 1, and must match `backend/cmd/server/VERSION` (without the `v`) at the tagged commit. The workflow checks that the commit is in `origin/release/standalone`; it never commits or pushes `VERSION` back to any branch.
 
-Each build uses GoReleaser OSS in snapshot mode with the selected release version and one target. Archive naming, bundled files, Go flags and release templates remain in the existing GoReleaser configurations. Every archive is accompanied by its source commit, target, version and SHA256. The publishing job verifies the complete matrix before building images or publishing. It uses GoReleaser's `extra_files` support to publish existing archives and checksums, with builds disabled. No Pro license is needed.
+The standalone profile (`.goreleaser.standalone.yaml`) preserves the fork's release artifacts:
 
-Go caches are isolated by target and refreshed on each source commit, with fallback to the preceding target cache. Save uses the original restore key, even if a build hook changes `go.sum`. Matrix jobs upload uniquely named artifacts. The publishing job extracts only the regular Linux binary from each verified archive and restores its executable permission before constructing Docker contexts. QEMU remains limited to runtime-image instructions. DockerHub images are omitted when its credentials are absent; GHCR is always retained. Simple mode still publishes only the amd64 GHCR image and the simple release description.
+- A stable GitHub Release with `sub2api_1.0.0_linux_amd64.tar.gz`, `checksums.txt`, and portable re-login runtime archives for Linux amd64 and arm64.
+- The Linux amd64 image at `ghcr.io/asharca/sub2api:1.0.0` and `ghcr.io/asharca/sub2api:1.0.0-amd64`. It does not publish to Docker Hub or update moving image tags such as `latest`.
 
-All build jobs use the commit resolved by `prepare`, including a manual release's selected tag. Helper scripts come from the workflow revision and are passed as a run-local artifact, so older application tags do not need to contain the new scripts. The workflow serializes release runs to prevent simultaneous updates to moving image tags.
+The workflow builds the frontend once, embeds it in the Go binary, and verifies the archive's source commit, target, version and SHA256 before reusing it for the release and Docker image. All build jobs use the source commit resolved by `prepare`; GoReleaser OSS publishes the existing archive and checksum without compiling again. The optional Telegram announcement requires an explicit opt-in on manual dispatch.
 
-Feature versions containing `-asharca.` or `-ashark.` select `.goreleaser.feature.yaml`: Linux amd64 archives/checksums and GHCR version/version-amd64 images only. They remain non-prerelease GitHub Releases, even when simple mode is requested, and do not synchronize VERSION to the default branch. The target commitish remains `feat/conversation-storage`.
+For a real release, commit the version change on `release/standalone`, push that branch to `origin` first, then create and push an annotated `v1.0.0` tag on the intended commit. Tag pushes trigger the release automatically. If dispatching manually, select `release/standalone` as the workflow ref and enter the existing release tag.
 
 ## Validate without publication
 
-From a branch containing this workflow:
+After `release/standalone` is available in the fork (and GitHub Actions recognizes `release.yml` as a dispatchable workflow):
 
 ```bash
-gh workflow run release.yml --ref <branch> \
-  -f tag=<branch> -f dry_run=true -f simple_release=false
+gh workflow run release.yml --repo asharca/sub2api --ref release/standalone \
+  -f tag=release/standalone -f dry_run=true
 ```
 
-A dry run builds all selected archives and runtime images, verifies artifact provenance and produces the final checksum file. It exports images locally as OCI archives instead of pushing them. It skips registry logins, GitHub Release publication, DockerHub description updates, Telegram notifications and VERSION synchronization. Test the simple path separately with `simple_release=true`; feature versions retain their archive/checksum publication contract.
-
-Dry-run artifacts are available in the Actions run, including `release-dry-run-report`. Compare job start/end times, GoReleaser's build duration and cache restore results. Do not present an initial cold-cache run as a warmed-cache benchmark; publishing network time is not measured by dry runs.
+A dry run reads `VERSION` from the selected source without requiring a new tag. It builds and verifies the archive, portable runtimes and GHCR image, exports the image locally as an OCI archive instead of pushing it, and skips registry login, GitHub Release publication and Telegram notifications. See `release-dry-run-report` for the checksum and metadata.
 
 Helper checks:
 

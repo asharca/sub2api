@@ -15,11 +15,11 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
+	"golang.org/x/mod/semver"
 )
 
 var (
@@ -29,9 +29,9 @@ var (
 
 const (
 	githubRepo          = "asharca/sub2api"
-	githubReleaseBranch = "feat/conversation-storage"
-	updateCacheKey      = "update_check_cache:" + githubRepo + ":" + githubReleaseBranch
+	githubReleaseBranch = "release/standalone"
 	updateCacheTTL      = 1200 // 20 minutes
+	noStandaloneReleaseWarning = "no installable standalone stable release for " + runtime.GOOS + "/" + runtime.GOARCH
 
 	// Security: allowed download domains for updates
 	allowedDownloadHost = "github.com"
@@ -143,33 +143,32 @@ func (s *UpdateService) CheckUpdate(ctx context.Context, force bool) (*UpdateInf
 	}
 
 	// Fetch from GitHub
-	info, err := s.fetchLatestRelease(ctx)
+	info, err := s.refreshUpdate(ctx)
 	if err != nil {
 		// Return cached on error
 		if cached, cacheErr := s.getFromCache(ctx); cacheErr == nil && cached != nil {
 			cached.Warning = "Using cached data: " + err.Error()
 			return cached, nil
 		}
-		return &UpdateInfo{
-			CurrentVersion:        s.currentVersion,
-			CurrentDisplayVersion: s.currentDisplayVersion(),
-			LatestVersion:         s.currentVersion,
-			LatestDisplayVersion:  s.currentDisplayVersion(),
-			HasUpdate:             false,
-			Warning:               err.Error(),
-			BuildType:             s.buildType,
-		}, nil
+		return s.noReleaseInfo(err.Error()), nil
 	}
 
-	// Cache result
-	s.saveToCache(ctx, info)
 	return info, nil
+}
+
+func (s *UpdateService) noReleaseInfo(warning string) *UpdateInfo {
+	return &UpdateInfo{
+		CurrentVersion: s.currentVersion, CurrentDisplayVersion: s.currentDisplayVersion(),
+		LatestVersion: s.currentVersion, LatestDisplayVersion: s.currentDisplayVersion(),
+		BuildType: s.buildType, Warning: warning,
+	}
 }
 
 // PerformUpdate downloads and applies the update
 // Uses atomic file replacement pattern for safe in-place updates
 func (s *UpdateService) PerformUpdate(ctx context.Context) error {
-	info, err := s.CheckUpdate(ctx, true)
+	// CheckUpdate may fall back to a cached release that has since been withdrawn.
+	info, err := s.refreshUpdate(ctx)
 	if err != nil {
 		return err
 	}
@@ -178,39 +177,16 @@ func (s *UpdateService) PerformUpdate(ctx context.Context) error {
 		return ErrNoUpdateAvailable
 	}
 
-	return s.applyReleaseAssets(ctx, info.ReleaseInfo.Assets)
+	return s.applyReleaseAssets(ctx, info.LatestVersion, info.ReleaseInfo)
 }
 
 // applyReleaseAssets downloads the platform archive from the given release assets,
 // verifies its checksum, and atomically swaps the running binary.
 // Shared by PerformUpdate (latest) and RollbackToVersion (specific older version).
-func (s *UpdateService) applyReleaseAssets(ctx context.Context, releaseAssets []Asset) error {
-	// Find matching archive and checksum for current platform
-	archiveName := s.getArchiveName()
-	var downloadURL string
-	var checksumURL string
-
-	for _, asset := range releaseAssets {
-		if strings.Contains(asset.Name, archiveName) && !strings.HasSuffix(asset.Name, ".txt") {
-			downloadURL = asset.DownloadURL
-		}
-		if asset.Name == "checksums.txt" {
-			checksumURL = asset.DownloadURL
-		}
-	}
-
-	if downloadURL == "" {
-		return fmt.Errorf("no compatible release found for %s/%s", runtime.GOOS, runtime.GOARCH)
-	}
-
-	// SECURITY: Validate download URL is from trusted domain
-	if err := validateDownloadURL(downloadURL); err != nil {
-		return fmt.Errorf("invalid download URL: %w", err)
-	}
-	if checksumURL != "" {
-		if err := validateDownloadURL(checksumURL); err != nil {
-			return fmt.Errorf("invalid checksum URL: %w", err)
-		}
+func (s *UpdateService) applyReleaseAssets(ctx context.Context, version string, release *ReleaseInfo) error {
+	downloadURL, checksumURL, err := standaloneDownloadURLs(version, release.assetURL)
+	if err != nil {
+		return err
 	}
 
 	// Get current executable path
@@ -234,16 +210,13 @@ func (s *UpdateService) applyReleaseAssets(ctx context.Context, releaseAssets []
 	defer func() { _ = os.RemoveAll(tempDir) }()
 
 	// Download archive
-	archivePath := filepath.Join(tempDir, filepath.Base(downloadURL))
+	archivePath := filepath.Join(tempDir, standaloneArchiveName(version))
 	if err := s.downloadFile(ctx, downloadURL, archivePath); err != nil {
 		return fmt.Errorf("download failed: %w", err)
 	}
 
-	// Verify checksum if available
-	if checksumURL != "" {
-		if err := s.verifyChecksum(ctx, archivePath, checksumURL); err != nil {
-			return fmt.Errorf("checksum verification failed: %w", err)
-		}
+	if err := s.verifyChecksum(ctx, archivePath, checksumURL); err != nil {
+		return fmt.Errorf("checksum verification failed: %w", err)
 	}
 
 	// Extract binary from archive
@@ -354,16 +327,7 @@ func (s *UpdateService) RollbackToVersion(ctx context.Context, version string) e
 		return ErrRollbackVersionNotAllowed
 	}
 
-	assets := make([]Asset, len(match.Assets))
-	for i, a := range match.Assets {
-		assets[i] = Asset{
-			Name:        a.Name,
-			DownloadURL: a.BrowserDownloadURL,
-			Size:        a.Size,
-		}
-	}
-
-	return s.applyReleaseAssets(ctx, assets)
+	return s.applyReleaseAssets(ctx, target, match.releaseInfo())
 }
 
 // fetchRollbackCandidates fetches recent releases and keeps the newest
@@ -377,7 +341,7 @@ func (s *UpdateService) fetchRollbackCandidates(ctx context.Context) ([]*GitHubR
 	seen := make(map[string]bool, len(releases))
 	candidates := make([]*GitHubRelease, 0, maxRollbackVersions)
 	for _, r := range releases {
-		if r == nil || r.Draft || r.Prerelease {
+		if !r.IsInstallableStandaloneRelease() {
 			continue
 		}
 		v := strings.TrimPrefix(r.TagName, "v")
@@ -405,49 +369,92 @@ func (s *UpdateService) fetchRollbackCandidates(ctx context.Context) ([]*GitHubR
 	return candidates, nil
 }
 
-func (s *UpdateService) fetchLatestRelease(ctx context.Context) (*UpdateInfo, error) {
+func (s *UpdateService) refreshUpdate(ctx context.Context) (*UpdateInfo, error) {
 	release, err := s.githubClient.FetchLatestRelease(ctx, githubRepo, githubReleaseBranch)
 	if err != nil {
 		return nil, err
 	}
-
-	latestVersion := strings.TrimPrefix(release.TagName, "v")
-
-	assets := make([]Asset, len(release.Assets))
-	for i, a := range release.Assets {
-		assets[i] = Asset{
-			Name:        a.Name,
-			DownloadURL: a.BrowserDownloadURL,
-			Size:        a.Size,
+	var info *UpdateInfo
+	if release.IsInstallableStandaloneRelease() {
+		latestVersion := strings.TrimPrefix(release.TagName, "v")
+		info = &UpdateInfo{
+			CurrentVersion:        s.currentVersion,
+			CurrentDisplayVersion: s.currentDisplayVersion(),
+			LatestVersion:         latestVersion,
+			LatestDisplayVersion:  latestVersion,
+			HasUpdate:             compareVersions(s.currentVersion, latestVersion) < 0,
+			ReleaseInfo:           release.releaseInfo(),
+			BuildType:             s.buildType,
 		}
+	} else {
+		info = s.noReleaseInfo(noStandaloneReleaseWarning)
 	}
-
-	return &UpdateInfo{
-		CurrentVersion:        s.currentVersion,
-		CurrentDisplayVersion: s.currentDisplayVersion(),
-		LatestVersion:         latestVersion,
-		LatestDisplayVersion:  latestVersion,
-		HasUpdate:             compareVersions(s.currentVersion, latestVersion) < 0,
-		ReleaseInfo: &ReleaseInfo{
-			Name:        release.Name,
-			Body:        release.Body,
-			PublishedAt: release.PublishedAt,
-			HTMLURL:     release.HTMLURL,
-			Assets:      assets,
-		},
-		Cached:    false,
-		BuildType: s.buildType,
-	}, nil
+	s.saveToCache(ctx, info)
+	return info, nil
 }
 
 func (s *UpdateService) downloadFile(ctx context.Context, downloadURL, dest string) error {
 	return s.githubClient.DownloadFile(ctx, downloadURL, dest, maxDownloadSize)
 }
 
-func (s *UpdateService) getArchiveName() string {
-	osName := runtime.GOOS
-	arch := runtime.GOARCH
-	return fmt.Sprintf("%s_%s", osName, arch)
+func standaloneArchiveName(version string) string {
+	return "sub2api_" + version + "_" + runtime.GOOS + "_" + runtime.GOARCH + ".tar.gz"
+}
+
+// The standalone channel starts at v1.0.0 and publishes only full vMAJOR.MINOR.PATCH tags.
+func isStandaloneTag(tag string) bool {
+	return semver.Canonical(tag) == tag && semver.Prerelease(tag) == "" && semver.Compare(tag, "v1.0.0") >= 0
+}
+
+// IsInstallableStandaloneRelease reports whether this stable release can be verified and installed locally.
+func (r *GitHubRelease) IsInstallableStandaloneRelease() bool {
+	if r == nil || r.Draft || r.Prerelease || !isStandaloneTag(r.TagName) {
+		return false
+	}
+	_, _, err := standaloneDownloadURLs(strings.TrimPrefix(r.TagName, "v"), r.assetURL)
+	return err == nil
+}
+
+func (r *GitHubRelease) assetURL(name string) string {
+	for i := range r.Assets {
+		a := &r.Assets[i]
+		if a.Name == name && a.Size > 0 && a.Size <= maxDownloadSize {
+			return a.BrowserDownloadURL
+		}
+	}
+	return ""
+}
+
+func (r *ReleaseInfo) assetURL(name string) string {
+	for i := range r.Assets {
+		a := &r.Assets[i]
+		if a.Name == name && a.Size > 0 && a.Size <= maxDownloadSize {
+			return a.DownloadURL
+		}
+	}
+	return ""
+}
+
+func standaloneDownloadURLs(version string, assetURL func(string) string) (string, string, error) {
+	archive, checksum := assetURL(standaloneArchiveName(version)), assetURL("checksums.txt")
+	if archive == "" || checksum == "" {
+		return "", "", fmt.Errorf("missing %s archive or checksums.txt for %s/%s", version, runtime.GOOS, runtime.GOARCH)
+	}
+	if err := validateDownloadURL(archive); err != nil {
+		return "", "", fmt.Errorf("invalid download URL: %w", err)
+	}
+	if err := validateDownloadURL(checksum); err != nil {
+		return "", "", fmt.Errorf("invalid checksum URL: %w", err)
+	}
+	return archive, checksum, nil
+}
+
+func (r *GitHubRelease) releaseInfo() *ReleaseInfo {
+	assets := make([]Asset, len(r.Assets))
+	for i, a := range r.Assets {
+		assets[i] = Asset{Name: a.Name, DownloadURL: a.BrowserDownloadURL, Size: a.Size}
+	}
+	return &ReleaseInfo{Name: r.Name, Body: r.Body, PublishedAt: r.PublishedAt, HTMLURL: r.HTMLURL, Assets: assets}
 }
 
 // validateDownloadURL checks if the URL is from an allowed domain
@@ -620,6 +627,18 @@ func (s *UpdateService) getFromCache(ctx context.Context) (*UpdateInfo, error) {
 	if time.Now().Unix()-cached.Timestamp > updateCacheTTL {
 		return nil, fmt.Errorf("cache expired")
 	}
+	// A successful scan with no eligible release supersedes any previous hit.
+	if cached.Latest == "" && cached.ReleaseInfo == nil {
+		info := s.noReleaseInfo(noStandaloneReleaseWarning)
+		info.Cached = true
+		return info, nil
+	}
+	if !isStandaloneTag("v"+cached.Latest) || cached.ReleaseInfo == nil {
+		return nil, fmt.Errorf("cached release is not a standalone stable version")
+	}
+	if _, _, err := standaloneDownloadURLs(cached.Latest, cached.ReleaseInfo.assetURL); err != nil {
+		return nil, err
+	}
 
 	return &UpdateInfo{
 		CurrentVersion:        s.currentVersion,
@@ -645,6 +664,10 @@ func (s *UpdateService) saveToCache(ctx context.Context, info *UpdateInfo) {
 		ReleaseInfo:   info.ReleaseInfo,
 		Timestamp:     time.Now().Unix(),
 	}
+	if info.ReleaseInfo == nil {
+		// Cache absence, not the version of whichever server performed the check.
+		cacheData.Latest, cacheData.LatestDisplay = "", ""
+	}
 
 	data, _ := json.Marshal(cacheData)
 	_ = s.cache.SetUpdateInfo(ctx, string(data), time.Duration(updateCacheTTL)*time.Second)
@@ -656,56 +679,5 @@ func (s *UpdateService) currentDisplayVersion() string {
 
 // compareVersions compares two semantic versions
 func compareVersions(current, latest string) int {
-	currentVersion := parseVersion(current)
-	latestVersion := parseVersion(latest)
-
-	for i := 0; i < 3; i++ {
-		if currentVersion.parts[i] < latestVersion.parts[i] {
-			return -1
-		}
-		if currentVersion.parts[i] > latestVersion.parts[i] {
-			return 1
-		}
-	}
-	if currentVersion.hasAsharcaSuffix != latestVersion.hasAsharcaSuffix {
-		if currentVersion.hasAsharcaSuffix {
-			return 1
-		}
-		return -1
-	}
-	if currentVersion.asharcaRevision < latestVersion.asharcaRevision {
-		return -1
-	}
-	if currentVersion.asharcaRevision > latestVersion.asharcaRevision {
-		return 1
-	}
-	return 0
-}
-
-type parsedVersion struct {
-	parts            [3]int
-	hasAsharcaSuffix bool
-	asharcaRevision  int
-}
-
-func parseVersion(v string) parsedVersion {
-	v = strings.TrimPrefix(strings.TrimSpace(v), "v")
-	base, suffix, _ := strings.Cut(v, "-")
-
-	result := parsedVersion{}
-	parts := strings.Split(base, ".")
-	for i := 0; i < len(parts) && i < 3; i++ {
-		if parsed, err := strconv.Atoi(parts[i]); err == nil {
-			result.parts[i] = parsed
-		}
-	}
-
-	if revision, ok := strings.CutPrefix(suffix, "asharca."); ok {
-		result.hasAsharcaSuffix = true
-		if parsed, err := strconv.Atoi(revision); err == nil {
-			result.asharcaRevision = parsed
-		}
-	}
-
-	return result
+	return semver.Compare("v"+strings.TrimPrefix(current, "v"), "v"+strings.TrimPrefix(latest, "v"))
 }

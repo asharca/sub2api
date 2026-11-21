@@ -3,18 +3,13 @@ name: Release
 on:
   push:
     tags:
-      - 'v*'
+      - 'v[1-9]*.*.*'
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Tag to release (or a branch/ref for dry run)'
+        description: 'Standalone release tag (or a branch/ref for dry run)'
         required: true
         type: string
-      simple_release:
-        description: 'Simple release: only x86_64 GHCR image, skip other artifacts'
-        required: false
-        type: boolean
-        default: false
       notify_release:
         description: 'Send the release announcement to Telegram (explicit opt-in)'
         required: false
@@ -34,35 +29,34 @@ permissions:
   contents: read
 
 env:
-  SIMPLE_RELEASE: ${{ inputs.simple_release == true || vars.SIMPLE_RELEASE == 'true' }}
   DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run == true }}
 
 jobs:
   prepare:
+    if: ${{ (github.event_name == 'push' && !github.event.deleted) || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/release/standalone') }}
     runs-on: ubuntu-latest
     outputs:
       sha: ${{ steps.plan.outputs.sha }}
       owner_lower: ${{ steps.plan.outputs.owner_lower }}
       tag: ${{ steps.plan.outputs.tag }}
       version: ${{ steps.plan.outputs.version }}
-      prerelease: ${{ steps.plan.outputs.prerelease }}
-      feature: ${{ steps.plan.outputs.feature }}
+      target_branch: ${{ steps.plan.outputs.target_branch }}
       date: ${{ steps.plan.outputs.date }}
       matrix: ${{ steps.plan.outputs.matrix }}
-      simple: ${{ steps.plan.outputs.simple }}
       dry_run: ${{ steps.plan.outputs.dry_run }}
     steps:
       - name: Checkout workflow tooling
         uses: actions/checkout@v6
         with:
           ref: ${{ github.sha }}
-      - name: Preserve tooling for releases of older tags
+      - name: Preserve tooling before checking out selected source
         run: cp -R .github/release-tools "$RUNNER_TEMP/release-tools"
       - name: Checkout selected application source
         uses: actions/checkout@v6
         with:
-          ref: ${{ inputs.tag || github.ref }}
+          ref: ${{ github.event_name == 'push' && github.sha || (inputs.dry_run && inputs.tag || format('refs/tags/{0}', inputs.tag)) }}
           fetch-depth: 0
+          persist-credentials: false
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
@@ -73,18 +67,12 @@ jobs:
           REQUESTED_REF: ${{ inputs.tag || github.ref_name }}
         run: |
           args=(--ref "$REQUESTED_REF")
-          if [[ "$SIMPLE_RELEASE" == true ]]; then args+=(--simple); fi
           if [[ "$DRY_RUN" == true ]]; then args+=(--dry-run); fi
           python "$RUNNER_TEMP/release-tools/release_matrix.py" plan "${args[@]}"
       - uses: actions/upload-artifact@v7
         with:
           name: release-tooling
           path: ${{ runner.temp }}/release-tools/
-          retention-days: 1
-      - uses: actions/upload-artifact@v7
-        with:
-          name: version-file
-          path: backend/cmd/server/VERSION
           retention-days: 1
 
   build-frontend:
@@ -132,10 +120,6 @@ jobs:
           path: ${{ runner.temp }}/release-tools/
       - uses: actions/download-artifact@v8
         with:
-          name: version-file
-          path: backend/cmd/server/
-      - uses: actions/download-artifact@v8
-        with:
           name: frontend-dist
           path: backend/internal/web/dist/
       - uses: actions/setup-go@v6
@@ -174,7 +158,6 @@ jobs:
           GITHUB_REPO_OWNER: ${{ github.repository_owner }}
           GITHUB_REPO_OWNER_LOWER: ${{ needs.prepare.outputs.owner_lower }}
           GITHUB_REPO_NAME: ${{ github.event.repository.name }}
-          DOCKERHUB_USERNAME: skip
           TAG_MESSAGE: ''
       - name: Verify and collect the target archive
         env:
@@ -231,7 +214,6 @@ jobs:
       contents: write
       packages: write
     env:
-      SIMPLE_RELEASE: ${{ needs.prepare.outputs.simple }}
       DRY_RUN: ${{ needs.prepare.outputs.dry_run }}
       RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
       RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
@@ -241,6 +223,7 @@ jobs:
         with:
           ref: ${{ needs.prepare.outputs.sha }}
           fetch-depth: 0
+          persist-credentials: false
       - uses: actions/download-artifact@v8
         with:
           name: release-tooling
@@ -255,10 +238,7 @@ jobs:
           python-version: '3.12'
       - run: python -m pip install -r "$RUNNER_TEMP/release-tools/requirements-release.txt"
       - name: Verify complete matrix and prepare Docker contexts
-        run: |
-          args=(--version "$RELEASE_VERSION" --sha "$RELEASE_SHA" --input release-input --output .release-context)
-          if [[ "$SIMPLE_RELEASE" == true ]]; then args+=(--simple); fi
-          python "$RUNNER_TEMP/release-tools/release_matrix.py" contexts "${args[@]}"
+        run: python "$RUNNER_TEMP/release-tools/release_matrix.py" contexts --version "$RELEASE_VERSION" --sha "$RELEASE_SHA" --input release-input --output .release-context
       - uses: actions/setup-go@v6
         with:
           go-version-file: backend/go.mod
@@ -267,14 +247,6 @@ jobs:
         uses: docker/setup-qemu-action@v3
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-      - name: Login to DockerHub
-        if: ${{ env.DRY_RUN != 'true' && env.SIMPLE_RELEASE != 'true' && env.DOCKERHUB_USERNAME != '' }}
-        uses: docker/login-action@v3
-        env:
-          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Login to GitHub Container Registry
         if: ${{ env.DRY_RUN != 'true' }}
         uses: docker/login-action@v3
@@ -282,9 +254,7 @@ jobs:
           registry: ghcr.io
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build images and publish manifests
-        env:
-          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME || 'skip' }}
+      - name: Build and publish standalone GHCR image
         run: bash "$RUNNER_TEMP/release-tools/release-images.sh"
       - name: Get annotated tag notes
         id: tag_message
@@ -297,10 +267,7 @@ jobs:
             echo "$DELIMITER"
           } >> "$GITHUB_OUTPUT"
       - name: Prepare publication-only GoReleaser config
-        run: |
-          args=(publish --output "$RUNNER_TEMP/goreleaser.publisher.yaml")
-          if [[ "$SIMPLE_RELEASE" == true ]]; then args+=(--simple); fi
-          python "$RUNNER_TEMP/release-tools/release_matrix.py" config "${args[@]}"
+        run: python "$RUNNER_TEMP/release-tools/release_matrix.py" config publish --output "$RUNNER_TEMP/goreleaser.publisher.yaml"
       - name: Publish existing archives and release notes
         uses: goreleaser/goreleaser-action@v7
         with:
@@ -310,11 +277,10 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GORELEASER_CURRENT_TAG: ${{ needs.prepare.outputs.tag }}
           TAG_MESSAGE: ${{ steps.tag_message.outputs.message }}
-          GITHUB_RELEASE_TARGET_COMMITISH: feat/conversation-storage
+          GITHUB_RELEASE_TARGET_COMMITISH: ${{ needs.prepare.outputs.target_branch }}
           GITHUB_REPO_OWNER: ${{ github.repository_owner }}
           GITHUB_REPO_NAME: ${{ github.event.repository.name }}
           GITHUB_REPO_OWNER_LOWER: ${{ needs.prepare.outputs.owner_lower }}
-          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME || 'skip' }}
       - uses: actions/download-artifact@v8
         with:
           pattern: reauth-runtime-*
@@ -337,27 +303,13 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
-      # Update DockerHub description
-      - name: Update DockerHub description
-        if: ${{ env.DRY_RUN != 'true' && env.SIMPLE_RELEASE != 'true' && env.DOCKERHUB_USERNAME != '' && needs.prepare.outputs.prerelease != 'true' }}
-        uses: peter-evans/dockerhub-description@v5
-        env:
-          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-          repository: ${{ secrets.DOCKERHUB_USERNAME }}/sub2api
-          short-description: "Sub2API - AI API Gateway Platform"
-          readme-filepath: ./deploy/DOCKER.md
-
       # Send Telegram notification
       - name: Send Telegram Notification
-        if: ${{ inputs.notify_release == true && env.DRY_RUN != 'true' && env.SIMPLE_RELEASE != 'true' && needs.prepare.outputs.prerelease != 'true' }}
+        if: ${{ inputs.notify_release == true && env.DRY_RUN != 'true' }}
         env:
           TAG_MESSAGE: ${{ steps.tag_message.outputs.message }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
         continue-on-error: true
         run: |
           # 检查必要的环境变量
@@ -390,20 +342,10 @@ jobs:
 
           MESSAGE+="🐳 *Docker 部署:*"$'\n'
           MESSAGE+="\`\`\`bash"$'\n'
-          # 根据是否配置 DockerHub 动态生成
-          if [ -n "$DOCKERHUB_USERNAME" ]; then
-            DOCKER_IMAGE="${DOCKERHUB_USERNAME}/sub2api"
-            MESSAGE+="# Docker Hub"$'\n'
-            MESSAGE+="docker pull ${DOCKER_IMAGE}:${VERSION}"$'\n'
-            MESSAGE+="# GitHub Container Registry"$'\n'
-          fi
           MESSAGE+="docker pull ${GHCR_IMAGE}:${VERSION}"$'\n'
           MESSAGE+="\`\`\`"$'\n'$'\n'
           MESSAGE+="🔗 *相关链接:*"$'\n'
           MESSAGE+="• [GitHub Release](https://github.com/${REPO}/releases/tag/${TAG_NAME})"$'\n'
-          if [ -n "$DOCKERHUB_USERNAME" ]; then
-            MESSAGE+="• [Docker Hub](https://hub.docker.com/r/${DOCKER_IMAGE})"$'\n'
-          fi
           MESSAGE+="• [GitHub Packages](https://github.com/${REPO}/pkgs/container/sub2api)"$'\n'$'\n'
           MESSAGE+="#Sub2API #Release #${TAG_NAME//./_}"
 
@@ -419,35 +361,3 @@ jobs:
                 parse_mode: "Markdown",
                 disable_web_page_preview: true
               }')"
-
-  sync-version-file:
-    needs: [prepare, release]
-    if: ${{ needs.release.result == 'success' && needs.prepare.outputs.dry_run != 'true' && needs.prepare.outputs.prerelease != 'true' && needs.prepare.outputs.feature != 'true' }}
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    env:
-      RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
-    steps:
-      - name: Checkout default branch
-        uses: actions/checkout@v6
-        with:
-          ref: ${{ github.event.repository.default_branch }}
-
-      - name: Sync VERSION file to released tag
-        run: |
-          VERSION="$RELEASE_VERSION"
-
-          CURRENT_VERSION=$(tr -d '\r\n' < backend/cmd/server/VERSION || true)
-          if [ "$CURRENT_VERSION" = "$VERSION" ]; then
-            echo "VERSION file already matches $VERSION"
-            exit 0
-          fi
-
-          echo "$VERSION" > backend/cmd/server/VERSION
-
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add backend/cmd/server/VERSION
-          git commit -m "chore: sync VERSION to ${VERSION} [skip ci]"
-          git push origin HEAD:${{ github.event.repository.default_branch }}
