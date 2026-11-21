@@ -74,6 +74,10 @@ func (s *S3BackupStore) UploadFile(ctx context.Context, key string, filePath str
 	sizeBytes := info.Size()
 
 	finish := servertiming.ObserveDependency(ctx, "s3")
+	if sizeBytes > archivePartSize {
+		defer finish()
+		return s.uploadMultipart(ctx, key, file, sizeBytes, contentType)
+	}
 	_, err = s.client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket:        &s.bucket,
 		Key:           &key,
