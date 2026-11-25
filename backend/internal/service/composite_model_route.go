@@ -2,9 +2,11 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 )
 
@@ -46,26 +48,39 @@ var (
 	ErrCompositeRouteExists   = infraerrors.Conflict("COMPOSITE_ROUTE_EXISTS", "composite route already exists")
 )
 
+// CompositeRouteRule is one ordered smart rule on an explicit composite route.
+type CompositeRouteRule = domain.CompositeRouteRule
+
+// CompositeRouteConditions are the ANDed request-feature checks of a rule.
+type CompositeRouteConditions = domain.CompositeRouteConditions
+
 // CompositeModelRoute maps one public model identifier in a composite group to
 // the concrete provider/model that should handle the request.
 type CompositeModelRoute struct {
-	ID             int64     `json:"id"`
-	GroupID        int64     `json:"group_id"`
-	PublicModel    string    `json:"public_model"`
-	MatchType      string    `json:"match_type"`
-	TargetPlatform string    `json:"target_platform"`
-	UpstreamModel  string    `json:"upstream_model"`
-	Endpoint       string    `json:"endpoint"`
-	Priority       int       `json:"priority"`
-	Enabled        bool      `json:"enabled"`
-	Notes          string    `json:"notes"`
-	CreatedAt      time.Time `json:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
+	ID             int64                `json:"id"`
+	GroupID        int64                `json:"group_id"`
+	PublicModel    string               `json:"public_model"`
+	MatchType      string               `json:"match_type"`
+	TargetPlatform string               `json:"target_platform"`
+	UpstreamModel  string               `json:"upstream_model"`
+	Endpoint       string               `json:"endpoint"`
+	Priority       int                  `json:"priority"`
+	Enabled        bool                 `json:"enabled"`
+	Notes          string               `json:"notes"`
+	Rules          []CompositeRouteRule `json:"rules"`
+	// SessionAffinity keeps a client session on its first smart-rule choice.
+	SessionAffinity bool      `json:"session_affinity"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
 }
 
 type CompositeRoutePreviewRequest struct {
 	Model    string `json:"model"`
 	Endpoint string `json:"endpoint"`
+	// Body is an optional sample request used to evaluate smart rules.
+	Body json.RawMessage `json:"body,omitempty"`
+	// UserAgent is the optional client User-Agent used by clients conditions.
+	UserAgent string `json:"user_agent,omitempty"`
 }
 
 type CompositeRouteDecision struct {
@@ -78,17 +93,27 @@ type CompositeRouteDecision struct {
 	Endpoint       string               `json:"endpoint"`
 	Route          *CompositeModelRoute `json:"route,omitempty"`
 	Reason         string               `json:"reason,omitempty"`
+	// RuleIndex is the selected rule's index in Route.Rules, -1 for the route's
+	// own target, and nil when smart rules were not evaluated.
+	RuleIndex *int   `json:"rule_index,omitempty"`
+	RuleName  string `json:"rule_name,omitempty"`
+	// Sticky reports that the session's earlier smart-rule choice was reused.
+	Sticky   bool                      `json:"sticky"`
+	Features *CompositeRouteFeatures   `json:"features,omitempty"`
+	Trace    []CompositeRouteTraceItem `json:"trace,omitempty"`
 }
 
 type CompositeRouteInput struct {
-	PublicModel    string
-	MatchType      string
-	TargetPlatform string
-	UpstreamModel  string
-	Endpoint       string
-	Priority       int
-	Enabled        bool
-	Notes          string
+	PublicModel     string
+	MatchType       string
+	TargetPlatform  string
+	UpstreamModel   string
+	Endpoint        string
+	Priority        int
+	Enabled         bool
+	Notes           string
+	Rules           []CompositeRouteRule
+	SessionAffinity bool
 }
 
 type CompositeModelRouteRepository interface {

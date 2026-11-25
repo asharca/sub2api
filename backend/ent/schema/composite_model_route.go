@@ -72,6 +72,13 @@ func (CompositeModelRoute) Fields() []ent.Field {
 			Optional().
 			Nillable().
 			SchemaType(map[string]string{dialect.Postgres: "text"}),
+		field.JSON("rules", []domain.CompositeRouteRule{}).
+			Default([]domain.CompositeRouteRule{}).
+			SchemaType(map[string]string{dialect.Postgres: "jsonb"}).
+			Comment("Ordered smart rules evaluated against request features before the route's own target."),
+		field.Bool("session_affinity").
+			Default(true).
+			Comment("Keep a client session on its first smart-rule choice unless a capability condition forces a switch."),
 	}
 }
 

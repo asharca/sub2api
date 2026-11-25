@@ -621,7 +621,8 @@ func compositeTargetPlatformMiddleware(resolver *service.CompositeRouteResolver)
 		routePath := c.FullPath()
 		model := requestmodel.FromBodyForRoute(routePath, c.GetHeader("Content-Type"), body)
 		if model != "" {
-			decision, err := resolver.Resolve(c.Request.Context(), apiKey.Group.ID, model, compositeRouteEndpointForPath(c.Request.URL.Path))
+			endpoint := compositeRouteEndpointForPath(c.Request.URL.Path)
+			decision, err := resolver.ResolveRequest(c.Request.Context(), apiKey.Group.ID, model, endpoint, compositeRouteRequestContent(c, endpoint, body))
 			if err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"type": "server_error", "message": "Failed to resolve composite model route"}})
 				c.Abort()
@@ -710,6 +711,37 @@ func compositeGeminiModelFromParams(c *gin.Context) string {
 		return strings.TrimSpace(modelAction[:idx])
 	}
 	return modelAction
+}
+
+// compositeRouteRequestContent exposes the request body to composite smart
+// rules on the text entry points (messages, count_tokens, chat completions,
+// responses). Other endpoints, including /alpha/search, realtime and live that
+// share the responses route scope, carry no rule features.
+func compositeRouteRequestContent(c *gin.Context, endpoint string, body []byte) *service.CompositeRouteRequestContent {
+	path := c.Request.URL.Path
+	var featureEndpoint string
+	switch endpoint {
+	case service.CompositeRouteEndpointMessages, service.CompositeRouteEndpointCountTokens:
+		featureEndpoint = service.CompositeRouteEndpointMessages
+	case service.CompositeRouteEndpointChatCompletions:
+		featureEndpoint = service.CompositeRouteEndpointChatCompletions
+	case service.CompositeRouteEndpointResponses:
+		if !strings.Contains(path, "/responses") {
+			return nil
+		}
+		featureEndpoint = service.CompositeRouteEndpointResponses
+	default:
+		return nil
+	}
+	return &service.CompositeRouteRequestContent{
+		FeatureEndpoint: featureEndpoint,
+		Body:            body,
+		UserAgent:       c.GetHeader("User-Agent"),
+		SessionID: func() string {
+			return service.CompositeRouteSessionID(c, featureEndpoint, body)
+		},
+		StickyReadOnly: endpoint == service.CompositeRouteEndpointCountTokens,
+	}
 }
 
 func compositeRouteEndpointForPath(path string) string {

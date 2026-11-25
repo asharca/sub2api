@@ -349,11 +349,27 @@ type CompositeRouteRequest struct {
 	Priority       int    `json:"priority"`
 	Enabled        *bool  `json:"enabled"`
 	Notes          string `json:"notes"`
+	// Rules are ordered smart rules; omitted means none.
+	Rules []CompositeRouteRuleRequest `json:"rules"`
+	// SessionAffinity defaults to true when omitted.
+	SessionAffinity *bool `json:"session_affinity"`
+}
+
+// CompositeRouteRuleRequest is one smart rule; the service validates fields.
+type CompositeRouteRuleRequest struct {
+	Name           string                            `json:"name"`
+	Enabled        *bool                             `json:"enabled"`
+	TargetPlatform string                            `json:"target_platform"`
+	UpstreamModel  string                            `json:"upstream_model"`
+	Conditions     *service.CompositeRouteConditions `json:"conditions"`
 }
 
 type CompositeRoutePreviewRequest struct {
 	Model    string `json:"model" binding:"required"`
 	Endpoint string `json:"endpoint" binding:"omitempty,oneof=any messages count_tokens responses chat_completions embeddings images gemini"`
+	// Body is an optional sample request evaluated against smart rules.
+	Body      json.RawMessage `json:"body"`
+	UserAgent string          `json:"user_agent"`
 }
 
 // List handles listing all groups with pagination
@@ -509,8 +525,10 @@ func (h *GroupHandler) PreviewCompositeRoute(c *gin.Context) {
 		return
 	}
 	decision, err := h.adminService.PreviewCompositeRoute(c.Request.Context(), groupID, service.CompositeRoutePreviewRequest{
-		Model:    req.Model,
-		Endpoint: req.Endpoint,
+		Model:     req.Model,
+		Endpoint:  req.Endpoint,
+		Body:      req.Body,
+		UserAgent: req.UserAgent,
 	})
 	if err != nil {
 		response.ErrorFrom(c, err)
@@ -524,15 +542,39 @@ func compositeRouteRequestToInput(req CompositeRouteRequest, defaultEnabled bool
 	if req.Enabled != nil {
 		enabled = *req.Enabled
 	}
+	sessionAffinity := true
+	if req.SessionAffinity != nil {
+		sessionAffinity = *req.SessionAffinity
+	}
+	rules := make([]service.CompositeRouteRule, 0, len(req.Rules))
+	for _, rule := range req.Rules {
+		ruleEnabled := true
+		if rule.Enabled != nil {
+			ruleEnabled = *rule.Enabled
+		}
+		var conditions service.CompositeRouteConditions
+		if rule.Conditions != nil {
+			conditions = *rule.Conditions
+		}
+		rules = append(rules, service.CompositeRouteRule{
+			Name:           rule.Name,
+			Enabled:        ruleEnabled,
+			TargetPlatform: rule.TargetPlatform,
+			UpstreamModel:  rule.UpstreamModel,
+			Conditions:     conditions,
+		})
+	}
 	return service.CompositeRouteInput{
-		PublicModel:    req.PublicModel,
-		MatchType:      req.MatchType,
-		TargetPlatform: req.TargetPlatform,
-		UpstreamModel:  req.UpstreamModel,
-		Endpoint:       req.Endpoint,
-		Priority:       req.Priority,
-		Enabled:        enabled,
-		Notes:          req.Notes,
+		PublicModel:     req.PublicModel,
+		MatchType:       req.MatchType,
+		TargetPlatform:  req.TargetPlatform,
+		UpstreamModel:   req.UpstreamModel,
+		Endpoint:        req.Endpoint,
+		Priority:        req.Priority,
+		Enabled:         enabled,
+		Notes:           req.Notes,
+		Rules:           rules,
+		SessionAffinity: sessionAffinity,
 	}
 }
 

@@ -46,6 +46,10 @@ Each route belongs to one composite group and contains:
 - `priority`: lower values win after match specificity.
 - `enabled`: disabled routes are ignored by runtime resolution but remain
   visible to admins.
+- `rules`: ordered smart rules (see [Smart Rules](#smart-rules)); always
+  returned as an array, `[]` when none.
+- `session_affinity`: keep a client session on its first smart-rule choice
+  (default `true`).
 
 Resolution order is explicit route first, then built-in detection. When more
 than one explicit route matches, exact matches beat prefix matches,
@@ -69,6 +73,123 @@ are supported. The public model remains the admission and response identity;
 the route's upstream model is applied before channel/account mapping. Subsequent
 turns can repeat or omit the public model. Changing it requires reconnecting so
 the gateway can resolve the route and select an account again.
+
+## Smart Rules
+
+An explicit route (for example `public_model = auto`) can carry up to 20
+ordered smart rules that pick a different concrete platform and upstream model
+from the request content. Routes with rules must use the `any`, `messages`,
+`responses`, or `chat_completions` endpoint scope.
+
+Each rule contains:
+
+- `name`: optional label, at most 64 characters.
+- `enabled`: disabled rules stay visible but are never candidates.
+- `target_platform`: concrete provider platform (same check as the route).
+- `upstream_model`: required, at most 200 characters.
+- `conditions`: every condition that is set must hold (AND); omitted or `null`
+  conditions do not restrict:
+  - `has_images`: the request contains image content parts.
+  - `has_tools`: the request declares tools (`tools` / `functions`).
+  - `reasoning`: thinking/reasoning is enabled (`thinking.type` other than
+    `disabled`, `reasoning_effort` / `reasoning.effort` other than `none`).
+  - `min_input_tokens` / `max_input_tokens`: bounds on the estimated input
+    tokens (text of system/instructions, messages/input and tool definitions;
+    image and file payloads are not counted). `0` means unbounded; when both
+    are set `min <= max`.
+  - `clients`: any of `claude_code`, `codex`, `gemini_cli`, `other`, detected
+    from the User-Agent.
+  - `keywords`: up to 20 keywords (1-100 characters, trimmed and de-duplicated);
+    any keyword matches as a case-insensitive substring of the most recent user
+    message that contains text (tool-result-only turns are skipped).
+
+### Matching Order and Availability
+
+Candidates are the enabled rules whose conditions all match, in rule order,
+followed by the route's own `target_platform` / `upstream_model` (the default
+target, which has no conditions). The gateway uses the first candidate whose
+target platform has a currently schedulable account in the group that supports
+its upstream model. A failed availability check counts as available. When no
+candidate is available the first candidate is used, so the request fails with
+the normal no-available-account error instead of silently changing provider.
+Availability answers are cached in-process for a few seconds.
+
+### Session Affinity
+
+With `session_affinity` enabled, the gateway remembers the chosen target per
+client session for one hour (refreshed on every request) in Redis under
+`composite_route_sticky:{group}:{route}:{sha256(session) prefix}`. Session IDs
+come from the Anthropic `metadata.user_id` session, or the OpenAI
+`session_id` / `conversation_id` headers and `prompt_cache_key`. Requests
+without a session ID are routed independently.
+
+A session keeps its earlier target while that target is still the route
+target or an enabled rule's target, is still available, and its rule's
+capability conditions (`has_images`, `min_input_tokens`, `max_input_tokens`)
+still hold. Capability conditions can also force a switch: when the freshly
+selected rule requires images or a minimum context size and the session's rule
+does not, the session moves to the new target. Other conditions (tools,
+reasoning, clients, keywords) never switch an established session. When the
+earlier target no longer qualifies, the gateway selects again and overwrites
+the session record. `count_tokens` reads the session choice but never writes
+it.
+
+### Entry Points Without a Body
+
+Rules are evaluated only on the text entry points: `messages`, `count_tokens`
+(read as messages), `chat_completions`, and `responses`. Gemini native paths,
+Responses WebSocket, Live, Alpha Search, images, embeddings, and other
+entry points resolve a route with rules to its default target.
+
+### Billing and Usage
+
+Billing is unchanged: usage is priced by the concrete platform and upstream
+model that actually served the request, for both subscription and balance
+groups. Clients keep seeing the public model in responses. The usage record's
+model mapping chain starts with the public model when it differs from the
+routed model, for example `auto→claude-sonnet-4-6`. Each smart-rule decision is
+also logged as `composite_smart_route_selected` with the group, route, rule
+index, target, upstream model, stickiness and a feature summary (never the
+user's text).
+
+### Preview
+
+`POST /api/v1/admin/groups/:id/composite-routes/preview` accepts an optional
+sample `body` (JSON object; read as `messages` when `endpoint` is `any`) and
+`user_agent`. With a body, the decision adds `rule_index` (`-1` for the route
+target), `rule_name`, `sticky` (always `false` in previews), `features`, and a
+`trace` listing every rule and finally the route target with `matched`,
+`available`, `selected`, and `reason`. Without a body, routes with rules return
+their default target with no `features` or `trace`.
+
+### Example: `auto`
+
+| Order | Name | Conditions | Target platform | Upstream model |
+| --- | --- | --- | --- | --- |
+| 0 | `vision` | `has_images: true` | `gemini` | `gemini-2.5-pro` |
+| 1 | `long-context` | `min_input_tokens: 150000` | `gemini` | `gemini-2.5-pro` |
+| 2 | `translate` | `keywords: ["翻译", "translate"]` | `deepseek` | `deepseek-chat` |
+| route | default | none | `anthropic` | `claude-sonnet-4-6` |
+
+```json
+{
+  "public_model": "auto",
+  "match_type": "exact",
+  "endpoint": "any",
+  "target_platform": "anthropic",
+  "upstream_model": "claude-sonnet-4-6",
+  "session_affinity": true,
+  "rules": [
+    {"name": "vision", "enabled": true, "target_platform": "gemini", "upstream_model": "gemini-2.5-pro", "conditions": {"has_images": true}},
+    {"name": "long-context", "enabled": true, "target_platform": "gemini", "upstream_model": "gemini-2.5-pro", "conditions": {"min_input_tokens": 150000}},
+    {"name": "translate", "enabled": true, "target_platform": "deepseek", "upstream_model": "deepseek-chat", "conditions": {"keywords": ["翻译", "translate"]}}
+  ]
+}
+```
+
+A Claude Code session that starts with plain text stays on Claude Sonnet even
+if a later turn asks for a translation; a later turn that attaches an image
+switches the session to Gemini.
 
 ## Built-In Detection
 
@@ -141,6 +262,5 @@ provider platforms that the routes target.
 
 This PR intentionally does not implement:
 
-- AUTO smart-routing among multiple providers for the same abstract task.
 - Direct API-key binding to several existing groups without a composite group.
 - Protocol-agnostic provider decoupling or a LiteLLM-style adapter rewrite.

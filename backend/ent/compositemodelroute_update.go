@@ -10,10 +10,12 @@ import (
 
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
+	"entgo.io/ent/dialect/sql/sqljson"
 	"entgo.io/ent/schema/field"
 	"github.com/Wei-Shaw/sub2api/ent/compositemodelroute"
 	"github.com/Wei-Shaw/sub2api/ent/group"
 	"github.com/Wei-Shaw/sub2api/ent/predicate"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 )
 
 // CompositeModelRouteUpdate is the builder for updating CompositeModelRoute entities.
@@ -194,6 +196,32 @@ func (_u *CompositeModelRouteUpdate) ClearNotes() *CompositeModelRouteUpdate {
 	return _u
 }
 
+// SetRules sets the "rules" field.
+func (_u *CompositeModelRouteUpdate) SetRules(v []domain.CompositeRouteRule) *CompositeModelRouteUpdate {
+	_u.mutation.SetRules(v)
+	return _u
+}
+
+// AppendRules appends value to the "rules" field.
+func (_u *CompositeModelRouteUpdate) AppendRules(v []domain.CompositeRouteRule) *CompositeModelRouteUpdate {
+	_u.mutation.AppendRules(v)
+	return _u
+}
+
+// SetSessionAffinity sets the "session_affinity" field.
+func (_u *CompositeModelRouteUpdate) SetSessionAffinity(v bool) *CompositeModelRouteUpdate {
+	_u.mutation.SetSessionAffinity(v)
+	return _u
+}
+
+// SetNillableSessionAffinity sets the "session_affinity" field if the given value is not nil.
+func (_u *CompositeModelRouteUpdate) SetNillableSessionAffinity(v *bool) *CompositeModelRouteUpdate {
+	if v != nil {
+		_u.SetSessionAffinity(*v)
+	}
+	return _u
+}
+
 // SetGroup sets the "group" edge to the Group entity.
 func (_u *CompositeModelRouteUpdate) SetGroup(v *Group) *CompositeModelRouteUpdate {
 	return _u.SetGroupID(v.ID)
@@ -335,6 +363,17 @@ func (_u *CompositeModelRouteUpdate) sqlSave(ctx context.Context) (_node int, er
 	}
 	if _u.mutation.NotesCleared() {
 		_spec.ClearField(compositemodelroute.FieldNotes, field.TypeString)
+	}
+	if value, ok := _u.mutation.Rules(); ok {
+		_spec.SetField(compositemodelroute.FieldRules, field.TypeJSON, value)
+	}
+	if value, ok := _u.mutation.AppendedRules(); ok {
+		_spec.AddModifier(func(u *sql.UpdateBuilder) {
+			sqljson.Append(u, compositemodelroute.FieldRules, value)
+		})
+	}
+	if value, ok := _u.mutation.SessionAffinity(); ok {
+		_spec.SetField(compositemodelroute.FieldSessionAffinity, field.TypeBool, value)
 	}
 	if _u.mutation.GroupCleared() {
 		edge := &sqlgraph.EdgeSpec{
@@ -550,6 +589,32 @@ func (_u *CompositeModelRouteUpdateOne) ClearNotes() *CompositeModelRouteUpdateO
 	return _u
 }
 
+// SetRules sets the "rules" field.
+func (_u *CompositeModelRouteUpdateOne) SetRules(v []domain.CompositeRouteRule) *CompositeModelRouteUpdateOne {
+	_u.mutation.SetRules(v)
+	return _u
+}
+
+// AppendRules appends value to the "rules" field.
+func (_u *CompositeModelRouteUpdateOne) AppendRules(v []domain.CompositeRouteRule) *CompositeModelRouteUpdateOne {
+	_u.mutation.AppendRules(v)
+	return _u
+}
+
+// SetSessionAffinity sets the "session_affinity" field.
+func (_u *CompositeModelRouteUpdateOne) SetSessionAffinity(v bool) *CompositeModelRouteUpdateOne {
+	_u.mutation.SetSessionAffinity(v)
+	return _u
+}
+
+// SetNillableSessionAffinity sets the "session_affinity" field if the given value is not nil.
+func (_u *CompositeModelRouteUpdateOne) SetNillableSessionAffinity(v *bool) *CompositeModelRouteUpdateOne {
+	if v != nil {
+		_u.SetSessionAffinity(*v)
+	}
+	return _u
+}
+
 // SetGroup sets the "group" edge to the Group entity.
 func (_u *CompositeModelRouteUpdateOne) SetGroup(v *Group) *CompositeModelRouteUpdateOne {
 	return _u.SetGroupID(v.ID)
@@ -721,6 +786,17 @@ func (_u *CompositeModelRouteUpdateOne) sqlSave(ctx context.Context) (_node *Com
 	}
 	if _u.mutation.NotesCleared() {
 		_spec.ClearField(compositemodelroute.FieldNotes, field.TypeString)
+	}
+	if value, ok := _u.mutation.Rules(); ok {
+		_spec.SetField(compositemodelroute.FieldRules, field.TypeJSON, value)
+	}
+	if value, ok := _u.mutation.AppendedRules(); ok {
+		_spec.AddModifier(func(u *sql.UpdateBuilder) {
+			sqljson.Append(u, compositemodelroute.FieldRules, value)
+		})
+	}
+	if value, ok := _u.mutation.SessionAffinity(); ok {
+		_spec.SetField(compositemodelroute.FieldSessionAffinity, field.TypeBool, value)
 	}
 	if _u.mutation.GroupCleared() {
 		edge := &sqlgraph.EdgeSpec{

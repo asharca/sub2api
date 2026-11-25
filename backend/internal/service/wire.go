@@ -947,6 +947,14 @@ func ProvideAPIKeyService(
 	return svc
 }
 
+// ProvideCompositeRouteResolver wires the composite resolver with the session
+// affinity store used by smart rules.
+func ProvideCompositeRouteResolver(repo CompositeModelRouteRepository, stickyStore CompositeRouteStickyStore) *CompositeRouteResolver {
+	resolver := NewCompositeRouteResolver(repo)
+	resolver.SetStickyStore(stickyStore)
+	return resolver
+}
+
 // ProviderSet is the Wire provider set for all services
 var ProviderSet = wire.NewSet(
 	ProvideRequestCaptureManager,
@@ -959,7 +967,7 @@ var ProviderSet = wire.NewSet(
 	ProvideAPIKeyAuthCacheInvalidator,
 	ProvideAuthCacheInvalidationWorker,
 	NewGroupService,
-	NewCompositeRouteResolver,
+	ProvideCompositeRouteResolver,
 	NewAccountService,
 	NewProxyService,
 	NewRedeemService,

@@ -3,6 +3,7 @@
 package ent
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"entgo.io/ent/dialect/sql"
 	"github.com/Wei-Shaw/sub2api/ent/compositemodelroute"
 	"github.com/Wei-Shaw/sub2api/ent/group"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 )
 
 // CompositeModelRoute is the model entity for the CompositeModelRoute schema.
@@ -42,6 +44,10 @@ type CompositeModelRoute struct {
 	Enabled bool `json:"enabled,omitempty"`
 	// Notes holds the value of the "notes" field.
 	Notes *string `json:"notes,omitempty"`
+	// Ordered smart rules evaluated against request features before the route's own target.
+	Rules []domain.CompositeRouteRule `json:"rules,omitempty"`
+	// Keep a client session on its first smart-rule choice unless a capability condition forces a switch.
+	SessionAffinity bool `json:"session_affinity,omitempty"`
 	// Edges holds the relations/edges for other nodes in the graph.
 	// The values are being populated by the CompositeModelRouteQuery when eager-loading is set.
 	Edges        CompositeModelRouteEdges `json:"edges"`
@@ -73,7 +79,9 @@ func (*CompositeModelRoute) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
 	for i := range columns {
 		switch columns[i] {
-		case compositemodelroute.FieldEnabled:
+		case compositemodelroute.FieldRules:
+			values[i] = new([]byte)
+		case compositemodelroute.FieldEnabled, compositemodelroute.FieldSessionAffinity:
 			values[i] = new(sql.NullBool)
 		case compositemodelroute.FieldID, compositemodelroute.FieldGroupID, compositemodelroute.FieldPriority:
 			values[i] = new(sql.NullInt64)
@@ -176,6 +184,20 @@ func (_m *CompositeModelRoute) assignValues(columns []string, values []any) erro
 				_m.Notes = new(string)
 				*_m.Notes = value.String
 			}
+		case compositemodelroute.FieldRules:
+			if value, ok := values[i].(*[]byte); !ok {
+				return fmt.Errorf("unexpected type %T for field rules", values[i])
+			} else if value != nil && len(*value) > 0 {
+				if err := json.Unmarshal(*value, &_m.Rules); err != nil {
+					return fmt.Errorf("unmarshal field rules: %w", err)
+				}
+			}
+		case compositemodelroute.FieldSessionAffinity:
+			if value, ok := values[i].(*sql.NullBool); !ok {
+				return fmt.Errorf("unexpected type %T for field session_affinity", values[i])
+			} else if value.Valid {
+				_m.SessionAffinity = value.Bool
+			}
 		default:
 			_m.selectValues.Set(columns[i], values[i])
 		}
@@ -256,6 +278,12 @@ func (_m *CompositeModelRoute) String() string {
 		builder.WriteString("notes=")
 		builder.WriteString(*v)
 	}
+	builder.WriteString(", ")
+	builder.WriteString("rules=")
+	builder.WriteString(fmt.Sprintf("%v", _m.Rules))
+	builder.WriteString(", ")
+	builder.WriteString("session_affinity=")
+	builder.WriteString(fmt.Sprintf("%v", _m.SessionAffinity))
 	builder.WriteByte(')')
 	return builder.String()
 }

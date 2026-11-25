@@ -36,6 +36,8 @@ func (d CompositeRouteDecision) AmbiguousMessage() string {
 type CompositeRouteResolver struct {
 	repo                   CompositeModelRouteRepository
 	modelOwnershipResolver CompositeModelOwnershipResolver
+	availabilityChecker    CompositeTargetAvailabilityChecker
+	stickyStore            CompositeRouteStickyStore
 }
 
 func NewCompositeRouteResolver(repo CompositeModelRouteRepository) *CompositeRouteResolver {
@@ -97,7 +99,16 @@ func filterSystemOneRouteModels(routes []CompositeModelRoute, models []string, e
 	}
 	return filtered
 }
+
+// Resolve maps a public model to its concrete target without request content;
+// routes with smart rules resolve to their own target.
 func (r *CompositeRouteResolver) Resolve(ctx context.Context, groupID int64, model, endpoint string) (CompositeRouteDecision, error) {
+	return r.ResolveRequest(ctx, groupID, model, endpoint, nil)
+}
+
+// ResolveRequest resolves like Resolve and, when content carries a request
+// body, lets the matched explicit route's smart rules pick the target.
+func (r *CompositeRouteResolver) ResolveRequest(ctx context.Context, groupID int64, model, endpoint string, content *CompositeRouteRequestContent) (CompositeRouteDecision, error) {
 	model = strings.TrimSpace(model)
 	endpoint = normalizeCompositeRouteEndpoint(endpoint)
 	decision := CompositeRouteDecision{
@@ -120,7 +131,7 @@ func (r *CompositeRouteResolver) Resolve(ctx context.Context, groupID int64, mod
 			if upstreamModel == "" {
 				upstreamModel = model
 			}
-			return CompositeRouteDecision{
+			matched := CompositeRouteDecision{
 				Matched:        true,
 				Source:         CompositeRouteSourceExplicit,
 				GroupID:        groupID,
@@ -129,7 +140,11 @@ func (r *CompositeRouteResolver) Resolve(ctx context.Context, groupID int64, mod
 				UpstreamModel:  upstreamModel,
 				Endpoint:       endpoint,
 				Route:          &route,
-			}, nil
+			}
+			if len(route.Rules) > 0 && content != nil && len(content.Body) > 0 {
+				r.applyCompositeSmartRules(ctx, &matched, &route, content)
+			}
+			return matched, nil
 		}
 	}
 

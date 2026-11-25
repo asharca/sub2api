@@ -1403,7 +1403,7 @@ func (s *GatewayService) buildRecordUsageLog(
 		ImageSizeBreakdown:       result.ImageSizeBreakdown,
 		CacheTTLOverridden:       cacheTTLOverridden,
 		ChannelID:                optionalInt64Ptr(input.ChannelID),
-		ModelMappingChain:        optionalTrimmedStringPtr(input.ModelMappingChain),
+		ModelMappingChain:        optionalTrimmedStringPtr(compositeModelMappingChain(ctx, input.ModelMappingChain)),
 		UserAgent:                optionalTrimmedStringPtr(input.UserAgent),
 		IPAddress:                optionalTrimmedStringPtr(input.IPAddress),
 		SessionID:                optionalTrimmedStringPtr(input.SessionID),

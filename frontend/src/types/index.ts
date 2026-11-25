@@ -715,6 +715,31 @@ export type CompositeRouteEndpoint =
 
 export type CompositeRouteSource = 'route' | 'detector' | string
 
+/** 智能规则可识别的客户端类型 */
+export type CompositeRouteClient = 'claude_code' | 'codex' | 'gemini_cli' | 'other'
+
+/**
+ * 智能规则条件：省略或 null 表示「不限」；所有已设置的条件需同时满足。
+ * min/max_input_tokens 为 0 表示不限，clients/keywords 为空表示不限。
+ */
+export interface CompositeRouteConditions {
+  has_images?: boolean | null
+  has_tools?: boolean | null
+  reasoning?: boolean | null
+  min_input_tokens?: number
+  max_input_tokens?: number
+  clients?: CompositeRouteClient[]
+  keywords?: string[]
+}
+
+export interface CompositeRouteRule {
+  name?: string
+  enabled: boolean
+  target_platform: Exclude<GroupPlatform, 'composite'>
+  upstream_model: string
+  conditions: CompositeRouteConditions
+}
+
 export interface CompositeModelRoute {
   id: number
   group_id: number
@@ -726,6 +751,8 @@ export interface CompositeModelRoute {
   priority: number
   enabled: boolean
   notes: string
+  rules: CompositeRouteRule[]
+  session_affinity: boolean
   created_at?: string
   updated_at?: string
 }
@@ -739,11 +766,37 @@ export interface CompositeModelRouteInput {
   priority?: number
   enabled?: boolean
   notes?: string
+  rules?: CompositeRouteRule[]
+  session_affinity?: boolean
 }
 
 export interface CompositeRoutePreviewRequest {
   model: string
   endpoint: CompositeRouteEndpoint
+  /** 示例请求 JSON 对象，用于计算智能规则特征 */
+  body?: Record<string, unknown>
+  user_agent?: string
+}
+
+export interface CompositeRouteFeatures {
+  has_images: boolean
+  has_tools: boolean
+  reasoning: boolean
+  input_tokens: number
+  client: CompositeRouteClient | string
+  last_user_text?: string
+}
+
+export interface CompositeRouteTraceEntry {
+  /** 规则下标；路由默认目标为 -1 */
+  rule_index: number
+  rule_name?: string
+  target_platform: Exclude<GroupPlatform, 'composite'> | ''
+  upstream_model: string
+  matched: boolean
+  available: boolean
+  selected: boolean
+  reason?: string
 }
 
 export interface CompositeRouteDecision {
@@ -756,6 +809,12 @@ export interface CompositeRouteDecision {
   endpoint: CompositeRouteEndpoint
   route?: CompositeModelRoute
   reason?: string
+  /** 命中规则下标；使用路由默认目标时为 -1；未走规则评估时省略 */
+  rule_index?: number
+  rule_name?: string
+  sticky?: boolean
+  features?: CompositeRouteFeatures
+  trace?: CompositeRouteTraceEntry[]
 }
 
 export interface ApiKey {

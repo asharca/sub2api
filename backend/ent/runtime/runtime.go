@@ -951,6 +951,14 @@ func init() {
 	compositemodelrouteDescEnabled := compositemodelrouteFields[7].Descriptor()
 	// compositemodelroute.DefaultEnabled holds the default value on creation for the enabled field.
 	compositemodelroute.DefaultEnabled = compositemodelrouteDescEnabled.Default.(bool)
+	// compositemodelrouteDescRules is the schema descriptor for rules field.
+	compositemodelrouteDescRules := compositemodelrouteFields[9].Descriptor()
+	// compositemodelroute.DefaultRules holds the default value on creation for the rules field.
+	compositemodelroute.DefaultRules = compositemodelrouteDescRules.Default.([]domain.CompositeRouteRule)
+	// compositemodelrouteDescSessionAffinity is the schema descriptor for session_affinity field.
+	compositemodelrouteDescSessionAffinity := compositemodelrouteFields[10].Descriptor()
+	// compositemodelroute.DefaultSessionAffinity holds the default value on creation for the session_affinity field.
+	compositemodelroute.DefaultSessionAffinity = compositemodelrouteDescSessionAffinity.Default.(bool)
 	errorpassthroughruleMixin := schema.ErrorPassthroughRule{}.Mixin()
 	errorpassthroughruleMixinFields0 := errorpassthroughruleMixin[0].Fields()
 	_ = errorpassthroughruleMixinFields0

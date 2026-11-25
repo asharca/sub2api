@@ -891,6 +891,7 @@ type GatewayService struct {
 	channelService        *ChannelService
 	resolver              *ModelPricingResolver
 	compositeResolver     *CompositeRouteResolver
+	compositeAvailability *gocache.Cache
 	debugGatewayBodyFile  atomic.Pointer[os.File] // non-nil when SUB2API_DEBUG_GATEWAY_BODY is set
 	tlsFPProfileService   *TLSFingerprintProfileService
 	balanceNotifyService  *BalanceNotifyService
@@ -962,11 +963,13 @@ func NewGatewayService(
 		channelService:        channelService,
 		resolver:              resolver,
 		compositeResolver:     compositeResolver,
+		compositeAvailability: gocache.New(compositeTargetAvailabilityTTL, time.Minute),
 		balanceNotifyService:  balanceNotifyService,
 		userPlatformQuotaRepo: userPlatformQuotaRepo,
 	}
 	if compositeResolver != nil {
 		compositeResolver.SetModelOwnershipResolver(svc.resolveCompositeModelOwnership)
+		compositeResolver.SetTargetAvailabilityChecker(svc.compositeTargetAvailable)
 	}
 	svc.userGroupRateResolver = newUserGroupRateResolver(
 		userGroupRateRepo,

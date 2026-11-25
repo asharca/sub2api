@@ -520,6 +520,14 @@ func usageRecordContext(parent context.Context, base context.Context) context.Co
 	if requestID, _ := parent.Value(ctxkey.RequestID).(string); strings.TrimSpace(requestID) != "" {
 		base = context.WithValue(base, ctxkey.RequestID, strings.TrimSpace(requestID))
 	}
+	// Composite public/upstream models label smart-routing results in the
+	// usage model mapping chain.
+	if publicModel, ok := service.RequestedPublicModelFromContext(parent); ok {
+		base = context.WithValue(base, ctxkey.RequestedPublicModel, publicModel)
+	}
+	if upstreamModel, ok := service.ResolvedUpstreamModelFromContext(parent); ok {
+		base = context.WithValue(base, ctxkey.ResolvedUpstreamModel, upstreamModel)
+	}
 	return requesttiming.With(base, requesttiming.From(parent))
 }
 

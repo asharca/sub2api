@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -20,6 +21,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/typesafe"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
+	"github.com/tidwall/gjson"
 )
 
 // Group management implementations
@@ -222,7 +224,21 @@ func (s *adminServiceImpl) PreviewCompositeRoute(ctx context.Context, groupID in
 	if resolver == nil {
 		resolver = NewCompositeRouteResolver(s.compositeRouteRepo)
 	}
-	decision, err := resolver.Resolve(ctx, groupID, input.Model, input.Endpoint)
+	var content *CompositeRouteRequestContent
+	if body := bytes.TrimSpace(input.Body); len(body) > 0 && !bytes.Equal(body, []byte("null")) {
+		if !gjson.ValidBytes(body) || !gjson.ParseBytes(body).IsObject() {
+			return nil, infraerrors.BadRequest("COMPOSITE_ROUTE_PREVIEW_INVALID_BODY", "body must be a JSON object")
+		}
+		if featureEndpoint := CompositeRouteFeatureEndpoint(input.Endpoint); featureEndpoint != "" {
+			content = &CompositeRouteRequestContent{
+				FeatureEndpoint: featureEndpoint,
+				Body:            body,
+				UserAgent:       input.UserAgent,
+				Preview:         true,
+			}
+		}
+	}
+	decision, err := resolver.ResolveRequest(ctx, groupID, input.Model, input.Endpoint, content)
 	if err != nil {
 		return nil, err
 	}
@@ -261,19 +277,25 @@ func compositeRouteFromInput(groupID int64, input CompositeRouteInput) (*Composi
 	if !isConcreteRequestPlatform(input.TargetPlatform) {
 		return nil, fmt.Errorf("target_platform must be a concrete provider")
 	}
+	rules, err := normalizeCompositeRouteRules(input.Rules, input.Endpoint)
+	if err != nil {
+		return nil, err
+	}
 	if input.Priority == 0 {
 		input.Priority = 100
 	}
 	return &CompositeModelRoute{
-		GroupID:        groupID,
-		PublicModel:    input.PublicModel,
-		MatchType:      input.MatchType,
-		TargetPlatform: input.TargetPlatform,
-		UpstreamModel:  input.UpstreamModel,
-		Endpoint:       input.Endpoint,
-		Priority:       input.Priority,
-		Enabled:        input.Enabled,
-		Notes:          input.Notes,
+		GroupID:         groupID,
+		PublicModel:     input.PublicModel,
+		MatchType:       input.MatchType,
+		TargetPlatform:  input.TargetPlatform,
+		UpstreamModel:   input.UpstreamModel,
+		Endpoint:        input.Endpoint,
+		Priority:        input.Priority,
+		Enabled:         input.Enabled,
+		Notes:           input.Notes,
+		Rules:           rules,
+		SessionAffinity: input.SessionAffinity,
 	}, nil
 }
 

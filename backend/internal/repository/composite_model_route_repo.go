@@ -51,6 +51,8 @@ func (r *compositeModelRouteRepository) Create(ctx context.Context, route *servi
 		SetPriority(route.Priority).
 		SetEnabled(route.Enabled).
 		SetNotes(route.Notes).
+		SetRules(compositeRouteRulesForStorage(route.Rules)).
+		SetSessionAffinity(route.SessionAffinity).
 		Save(ctx)
 	if err != nil {
 		return translatePersistenceError(err, nil, service.ErrCompositeRouteExists)
@@ -72,6 +74,8 @@ func (r *compositeModelRouteRepository) Update(ctx context.Context, route *servi
 		SetPriority(route.Priority).
 		SetEnabled(route.Enabled).
 		SetNotes(route.Notes).
+		SetRules(compositeRouteRulesForStorage(route.Rules)).
+		SetSessionAffinity(route.SessionAffinity).
 		Save(ctx)
 	if err != nil {
 		return translatePersistenceError(err, service.ErrCompositeRouteNotFound, service.ErrCompositeRouteExists)
@@ -97,17 +101,28 @@ func compositeModelRouteEntityToService(row *dbent.CompositeModelRoute) *service
 		return nil
 	}
 	return &service.CompositeModelRoute{
-		ID:             row.ID,
-		GroupID:        row.GroupID,
-		PublicModel:    row.PublicModel,
-		MatchType:      row.MatchType,
-		TargetPlatform: row.TargetPlatform,
-		UpstreamModel:  row.UpstreamModel,
-		Endpoint:       row.Endpoint,
-		Priority:       row.Priority,
-		Enabled:        row.Enabled,
-		Notes:          derefString(row.Notes),
-		CreatedAt:      row.CreatedAt,
-		UpdatedAt:      row.UpdatedAt,
+		ID:              row.ID,
+		GroupID:         row.GroupID,
+		PublicModel:     row.PublicModel,
+		MatchType:       row.MatchType,
+		TargetPlatform:  row.TargetPlatform,
+		UpstreamModel:   row.UpstreamModel,
+		Endpoint:        row.Endpoint,
+		Priority:        row.Priority,
+		Enabled:         row.Enabled,
+		Notes:           derefString(row.Notes),
+		Rules:           compositeRouteRulesForStorage(row.Rules),
+		SessionAffinity: row.SessionAffinity,
+		CreatedAt:       row.CreatedAt,
+		UpdatedAt:       row.UpdatedAt,
 	}
+}
+
+// compositeRouteRulesForStorage keeps rules a JSON array, never null, in both
+// the database and API responses.
+func compositeRouteRulesForStorage(rules []service.CompositeRouteRule) []service.CompositeRouteRule {
+	if rules == nil {
+		return []service.CompositeRouteRule{}
+	}
+	return rules
 }

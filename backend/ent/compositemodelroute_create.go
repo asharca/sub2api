@@ -13,6 +13,7 @@ import (
 	"entgo.io/ent/schema/field"
 	"github.com/Wei-Shaw/sub2api/ent/compositemodelroute"
 	"github.com/Wei-Shaw/sub2api/ent/group"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 )
 
 // CompositeModelRouteCreate is the builder for creating a CompositeModelRoute entity.
@@ -175,6 +176,26 @@ func (_c *CompositeModelRouteCreate) SetNillableNotes(v *string) *CompositeModel
 	return _c
 }
 
+// SetRules sets the "rules" field.
+func (_c *CompositeModelRouteCreate) SetRules(v []domain.CompositeRouteRule) *CompositeModelRouteCreate {
+	_c.mutation.SetRules(v)
+	return _c
+}
+
+// SetSessionAffinity sets the "session_affinity" field.
+func (_c *CompositeModelRouteCreate) SetSessionAffinity(v bool) *CompositeModelRouteCreate {
+	_c.mutation.SetSessionAffinity(v)
+	return _c
+}
+
+// SetNillableSessionAffinity sets the "session_affinity" field if the given value is not nil.
+func (_c *CompositeModelRouteCreate) SetNillableSessionAffinity(v *bool) *CompositeModelRouteCreate {
+	if v != nil {
+		_c.SetSessionAffinity(*v)
+	}
+	return _c
+}
+
 // SetGroup sets the "group" edge to the Group entity.
 func (_c *CompositeModelRouteCreate) SetGroup(v *Group) *CompositeModelRouteCreate {
 	return _c.SetGroupID(v.ID)
@@ -255,6 +276,14 @@ func (_c *CompositeModelRouteCreate) defaults() error {
 		v := compositemodelroute.DefaultEnabled
 		_c.mutation.SetEnabled(v)
 	}
+	if _, ok := _c.mutation.Rules(); !ok {
+		v := compositemodelroute.DefaultRules
+		_c.mutation.SetRules(v)
+	}
+	if _, ok := _c.mutation.SessionAffinity(); !ok {
+		v := compositemodelroute.DefaultSessionAffinity
+		_c.mutation.SetSessionAffinity(v)
+	}
 	return nil
 }
 
@@ -314,6 +343,12 @@ func (_c *CompositeModelRouteCreate) check() error {
 	}
 	if _, ok := _c.mutation.Enabled(); !ok {
 		return &ValidationError{Name: "enabled", err: errors.New(`ent: missing required field "CompositeModelRoute.enabled"`)}
+	}
+	if _, ok := _c.mutation.Rules(); !ok {
+		return &ValidationError{Name: "rules", err: errors.New(`ent: missing required field "CompositeModelRoute.rules"`)}
+	}
+	if _, ok := _c.mutation.SessionAffinity(); !ok {
+		return &ValidationError{Name: "session_affinity", err: errors.New(`ent: missing required field "CompositeModelRoute.session_affinity"`)}
 	}
 	if len(_c.mutation.GroupIDs()) == 0 {
 		return &ValidationError{Name: "group", err: errors.New(`ent: missing required edge "CompositeModelRoute.group"`)}
@@ -388,6 +423,14 @@ func (_c *CompositeModelRouteCreate) createSpec() (*CompositeModelRoute, *sqlgra
 	if value, ok := _c.mutation.Notes(); ok {
 		_spec.SetField(compositemodelroute.FieldNotes, field.TypeString, value)
 		_node.Notes = &value
+	}
+	if value, ok := _c.mutation.Rules(); ok {
+		_spec.SetField(compositemodelroute.FieldRules, field.TypeJSON, value)
+		_node.Rules = value
+	}
+	if value, ok := _c.mutation.SessionAffinity(); ok {
+		_spec.SetField(compositemodelroute.FieldSessionAffinity, field.TypeBool, value)
+		_node.SessionAffinity = value
 	}
 	if nodes := _c.mutation.GroupIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
@@ -608,6 +651,30 @@ func (u *CompositeModelRouteUpsert) ClearNotes() *CompositeModelRouteUpsert {
 	return u
 }
 
+// SetRules sets the "rules" field.
+func (u *CompositeModelRouteUpsert) SetRules(v []domain.CompositeRouteRule) *CompositeModelRouteUpsert {
+	u.Set(compositemodelroute.FieldRules, v)
+	return u
+}
+
+// UpdateRules sets the "rules" field to the value that was provided on create.
+func (u *CompositeModelRouteUpsert) UpdateRules() *CompositeModelRouteUpsert {
+	u.SetExcluded(compositemodelroute.FieldRules)
+	return u
+}
+
+// SetSessionAffinity sets the "session_affinity" field.
+func (u *CompositeModelRouteUpsert) SetSessionAffinity(v bool) *CompositeModelRouteUpsert {
+	u.Set(compositemodelroute.FieldSessionAffinity, v)
+	return u
+}
+
+// UpdateSessionAffinity sets the "session_affinity" field to the value that was provided on create.
+func (u *CompositeModelRouteUpsert) UpdateSessionAffinity() *CompositeModelRouteUpsert {
+	u.SetExcluded(compositemodelroute.FieldSessionAffinity)
+	return u
+}
+
 // UpdateNewValues updates the mutable fields using the new values that were set on create.
 // Using this option is equivalent to using:
 //
@@ -825,6 +892,34 @@ func (u *CompositeModelRouteUpsertOne) UpdateNotes() *CompositeModelRouteUpsertO
 func (u *CompositeModelRouteUpsertOne) ClearNotes() *CompositeModelRouteUpsertOne {
 	return u.Update(func(s *CompositeModelRouteUpsert) {
 		s.ClearNotes()
+	})
+}
+
+// SetRules sets the "rules" field.
+func (u *CompositeModelRouteUpsertOne) SetRules(v []domain.CompositeRouteRule) *CompositeModelRouteUpsertOne {
+	return u.Update(func(s *CompositeModelRouteUpsert) {
+		s.SetRules(v)
+	})
+}
+
+// UpdateRules sets the "rules" field to the value that was provided on create.
+func (u *CompositeModelRouteUpsertOne) UpdateRules() *CompositeModelRouteUpsertOne {
+	return u.Update(func(s *CompositeModelRouteUpsert) {
+		s.UpdateRules()
+	})
+}
+
+// SetSessionAffinity sets the "session_affinity" field.
+func (u *CompositeModelRouteUpsertOne) SetSessionAffinity(v bool) *CompositeModelRouteUpsertOne {
+	return u.Update(func(s *CompositeModelRouteUpsert) {
+		s.SetSessionAffinity(v)
+	})
+}
+
+// UpdateSessionAffinity sets the "session_affinity" field to the value that was provided on create.
+func (u *CompositeModelRouteUpsertOne) UpdateSessionAffinity() *CompositeModelRouteUpsertOne {
+	return u.Update(func(s *CompositeModelRouteUpsert) {
+		s.UpdateSessionAffinity()
 	})
 }
 
@@ -1211,6 +1306,34 @@ func (u *CompositeModelRouteUpsertBulk) UpdateNotes() *CompositeModelRouteUpsert
 func (u *CompositeModelRouteUpsertBulk) ClearNotes() *CompositeModelRouteUpsertBulk {
 	return u.Update(func(s *CompositeModelRouteUpsert) {
 		s.ClearNotes()
+	})
+}
+
+// SetRules sets the "rules" field.
+func (u *CompositeModelRouteUpsertBulk) SetRules(v []domain.CompositeRouteRule) *CompositeModelRouteUpsertBulk {
+	return u.Update(func(s *CompositeModelRouteUpsert) {
+		s.SetRules(v)
+	})
+}
+
+// UpdateRules sets the "rules" field to the value that was provided on create.
+func (u *CompositeModelRouteUpsertBulk) UpdateRules() *CompositeModelRouteUpsertBulk {
+	return u.Update(func(s *CompositeModelRouteUpsert) {
+		s.UpdateRules()
+	})
+}
+
+// SetSessionAffinity sets the "session_affinity" field.
+func (u *CompositeModelRouteUpsertBulk) SetSessionAffinity(v bool) *CompositeModelRouteUpsertBulk {
+	return u.Update(func(s *CompositeModelRouteUpsert) {
+		s.SetSessionAffinity(v)
+	})
+}
+
+// UpdateSessionAffinity sets the "session_affinity" field to the value that was provided on create.
+func (u *CompositeModelRouteUpsertBulk) UpdateSessionAffinity() *CompositeModelRouteUpsertBulk {
+	return u.Update(func(s *CompositeModelRouteUpsert) {
+		s.UpdateSessionAffinity()
 	})
 }
 

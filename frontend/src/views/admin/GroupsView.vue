@@ -3990,11 +3990,13 @@
             })
           : t('admin.groups.compositeRoutes.title')
       "
-      width="wide"
+      width="extra-wide"
       @close="closeCompositeRoutesModal"
     >
-      <div class="grid gap-5 lg:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]">
-        <section class="min-w-0">
+      <div class="grid gap-5 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
+        <section
+          class="min-w-0 lg:sticky lg:top-0 lg:max-h-[calc(90vh-12rem)] lg:self-start lg:overflow-y-auto"
+        >
           <div class="mb-3 flex items-center justify-between gap-3">
             <h3 class="text-sm font-semibold text-gray-900 dark:text-white">
               {{ t("admin.groups.compositeRoutes.routes") }}
@@ -4060,6 +4062,22 @@
                         <span class="badge badge-gray">{{
                           compositeRouteMatchLabel(route.match_type)
                         }}</span>
+                        <span
+                          v-if="route.rules?.length"
+                          class="badge badge-primary"
+                          :title="
+                            t('admin.groups.compositeRoutes.smartBadgeTitle', {
+                              count: route.rules.length,
+                            })
+                          "
+                          data-testid="composite-route-smart-badge"
+                        >
+                          {{
+                            t("admin.groups.compositeRoutes.smartBadge", {
+                              count: route.rules.length,
+                            })
+                          }}
+                        </span>
                         <span
                           v-if="!route.enabled"
                           class="badge badge-danger"
@@ -4217,6 +4235,30 @@
               ></textarea>
             </div>
 
+            <div class="flex items-start justify-between gap-3">
+              <div class="min-w-0">
+                <label class="input-label mb-0">{{
+                  t("admin.groups.compositeRoutes.sessionAffinity")
+                }}</label>
+                <p class="input-hint mb-0">
+                  {{ t("admin.groups.compositeRoutes.sessionAffinityHint") }}
+                </p>
+              </div>
+              <Toggle
+                v-model="compositeRouteForm.session_affinity"
+                :aria-label="t('admin.groups.compositeRoutes.sessionAffinity')"
+              />
+            </div>
+
+            <CompositeRouteRulesEditor
+              v-model="compositeRouteForm.rules"
+              :platform-options="compositeRoutePlatformOptions"
+              :default-platform="compositeRouteForm.target_platform"
+              :disabled="!compositeRouteRulesSupported"
+              :show-validation="compositeRouteRulesShowValidation"
+              id-prefix="composite-route-rule"
+            />
+
             <div class="flex items-center justify-between gap-3">
               <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
                 <input
@@ -4270,6 +4312,72 @@
                 </button>
               </div>
 
+              <div>
+                <button
+                  type="button"
+                  class="flex items-center gap-1 text-xs font-medium text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200"
+                  :aria-expanded="compositePreviewSampleOpen"
+                  data-testid="composite-preview-sample-toggle"
+                  @click="compositePreviewSampleOpen = !compositePreviewSampleOpen"
+                >
+                  <Icon
+                    :name="compositePreviewSampleOpen ? 'chevronDown' : 'chevronRight'"
+                    size="xs"
+                  />
+                  {{ t("admin.groups.compositeRoutes.sampleRequest") }}
+                  <span
+                    v-if="!compositePreviewSampleOpen && (compositePreviewBody.trim() || compositePreviewUserAgent.trim())"
+                    class="h-1.5 w-1.5 rounded-full bg-primary-500"
+                    aria-hidden="true"
+                  ></span>
+                </button>
+                <div v-show="compositePreviewSampleOpen" class="mt-2 space-y-2">
+                  <p class="input-hint mt-0">
+                    {{ t("admin.groups.compositeRoutes.sampleRequestHint") }}
+                  </p>
+                  <div>
+                    <label
+                      for="composite-preview-body"
+                      class="input-label"
+                    >{{ t("admin.groups.compositeRoutes.sampleBody") }}</label>
+                    <textarea
+                      id="composite-preview-body"
+                      v-model="compositePreviewBody"
+                      rows="6"
+                      spellcheck="false"
+                      :class="[
+                        'input font-mono text-xs',
+                        compositePreviewBodyError && 'input-error',
+                      ]"
+                      placeholder='{"messages":[{"role":"user","content":"hello"}]}'
+                      :aria-invalid="!!compositePreviewBodyError"
+                      data-testid="composite-preview-body"
+                      @input="compositePreviewBodyError = ''"
+                    ></textarea>
+                    <p
+                      v-if="compositePreviewBodyError"
+                      class="mt-1 text-xs text-red-600 dark:text-red-400"
+                      role="alert"
+                    >
+                      {{ compositePreviewBodyError }}
+                    </p>
+                  </div>
+                  <div>
+                    <label
+                      for="composite-preview-user-agent"
+                      class="input-label"
+                    >{{ t("admin.groups.compositeRoutes.userAgent") }}</label>
+                    <input
+                      id="composite-preview-user-agent"
+                      v-model="compositePreviewUserAgent"
+                      type="text"
+                      class="input"
+                      placeholder="claude-cli/2.1.0"
+                    />
+                  </div>
+                </div>
+              </div>
+
               <div
                 v-if="compositePreviewDecision"
                 class="rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm dark:border-dark-600 dark:bg-dark-800"
@@ -4320,6 +4428,16 @@
                 >
                   {{ compositePreviewDecision.reason }}
                 </div>
+                <CompositeRouteDecisionDetails
+                  v-if="
+                    compositePreviewDecision.matched &&
+                    (compositePreviewDecision.rule_index != null ||
+                      compositePreviewDecision.features ||
+                      compositePreviewDecision.trace?.length)
+                  "
+                  :decision="compositePreviewDecision"
+                  class="mt-3 border-t border-gray-200 pt-3 dark:border-dark-600"
+                />
               </div>
             </div>
           </div>
@@ -4378,6 +4496,8 @@ import type {
   CompositeModelRoute,
   CompositeModelRouteInput,
   CompositeRouteDecision,
+  CompositeRoutePreviewRequest,
+  CompositeRouteRule,
   CompositeRouteEndpoint,
   CompositeRouteMatchType,
   GroupI18n,
@@ -4408,6 +4528,8 @@ import GroupUserDeniedModelsModal from "@/components/admin/group/GroupUserDenied
 import GroupCapacityBadge from "@/components/common/GroupCapacityBadge.vue";
 import ReasoningEffortPolicyFields from "@/components/admin/group/ReasoningEffortPolicyFields.vue";
 import CodexManifestAccountsField from "@/components/admin/group/CodexManifestAccountsField.vue";
+import CompositeRouteRulesEditor from "@/components/admin/group/CompositeRouteRulesEditor.vue";
+import CompositeRouteDecisionDetails from "@/components/admin/group/CompositeRouteDecisionDetails.vue";
 import PricingEntryCard from "@/components/admin/channel/PricingEntryCard.vue";
 import type { PricingFormEntry } from "@/components/admin/channel/types";
 import {
@@ -4465,6 +4587,13 @@ import {
   supportsReasoningEffortPolicyPlatform,
   type ReasoningEffortMappingRow,
 } from "./groupsReasoningEffort";
+import {
+  MAX_COMPOSITE_ROUTE_RULES,
+  cloneCompositeRouteRules,
+  compositeRouteRulesValid,
+  compositeRouteSupportsRules,
+  normalizeCompositeRouteRules,
+} from "./groupsCompositeRouteRules";
 import {
   defaultAllowImageGenerationForPlatform,
   getDefaultImagePreviewPrice,
@@ -4964,6 +5093,8 @@ type CompositeRouteFormState = {
   priority: number;
   enabled: boolean;
   notes: string;
+  session_affinity: boolean;
+  rules: CompositeRouteRule[];
 };
 
 const showCompositeRoutesModal = ref(false);
@@ -4972,10 +5103,15 @@ const compositeRoutes = ref<CompositeModelRoute[]>([]);
 const compositeRoutesLoading = ref(false);
 const compositeRouteSaving = ref(false);
 const compositeRouteEditingId = ref<number | null>(null);
+const compositeRouteRulesShowValidation = ref(false);
 const compositePreviewModel = ref("");
 const compositePreviewEndpoint = ref<CompositeRouteEndpoint>("any");
 const compositePreviewLoading = ref(false);
 const compositePreviewDecision = ref<CompositeRouteDecision | null>(null);
+const compositePreviewSampleOpen = ref(false);
+const compositePreviewBody = ref("");
+const compositePreviewBodyError = ref("");
+const compositePreviewUserAgent = ref("");
 const compositeRouteForm = reactive<CompositeRouteFormState>({
   public_model: "",
   match_type: "exact",
@@ -4985,7 +5121,12 @@ const compositeRouteForm = reactive<CompositeRouteFormState>({
   priority: 100,
   enabled: true,
   notes: "",
+  session_affinity: true,
+  rules: [],
 });
+const compositeRouteRulesSupported = computed(() =>
+  compositeRouteSupportsRules(compositeRouteForm.endpoint),
+);
 const createMessagesDispatchDefaults = createDefaultMessagesDispatchFormState();
 const editMessagesDispatchDefaults = createDefaultMessagesDispatchFormState();
 const createModelAllowlistState = reactive(createInitialModelAllowlistState());
@@ -6635,6 +6776,9 @@ const resetCompositeRouteForm = () => {
   compositeRouteForm.priority = 100;
   compositeRouteForm.enabled = true;
   compositeRouteForm.notes = "";
+  compositeRouteForm.session_affinity = true;
+  compositeRouteForm.rules = [];
+  compositeRouteRulesShowValidation.value = false;
 };
 
 const toCompositeRouteInput = (): CompositeModelRouteInput => ({
@@ -6646,6 +6790,8 @@ const toCompositeRouteInput = (): CompositeModelRouteInput => ({
   priority: Number(compositeRouteForm.priority) || 100,
   enabled: compositeRouteForm.enabled,
   notes: compositeRouteForm.notes.trim(),
+  rules: normalizeCompositeRouteRules(compositeRouteForm.rules),
+  session_affinity: compositeRouteForm.session_affinity,
 });
 
 const loadCompositeRoutes = async () => {
@@ -6676,6 +6822,10 @@ const handleCompositeRoutes = async (group: AdminGroup) => {
   compositePreviewModel.value = "";
   compositePreviewEndpoint.value = "any";
   compositePreviewDecision.value = null;
+  compositePreviewSampleOpen.value = false;
+  compositePreviewBody.value = "";
+  compositePreviewBodyError.value = "";
+  compositePreviewUserAgent.value = "";
   resetCompositeRouteForm();
   showCompositeRoutesModal.value = true;
   await loadCompositeRoutes();
@@ -6699,12 +6849,33 @@ const editCompositeRoute = (route: CompositeModelRoute) => {
   compositeRouteForm.priority = route.priority || 100;
   compositeRouteForm.enabled = route.enabled;
   compositeRouteForm.notes = route.notes || "";
+  compositeRouteForm.session_affinity = route.session_affinity ?? true;
+  compositeRouteForm.rules = cloneCompositeRouteRules(route.rules);
+  compositeRouteRulesShowValidation.value = false;
 };
 
 const saveCompositeRoute = async () => {
   if (!compositeRoutesGroup.value) return;
   if (!compositeRouteForm.public_model.trim()) {
     appStore.showError(t("admin.groups.compositeRoutes.publicModelRequired"));
+    return;
+  }
+  const rules = compositeRouteForm.rules;
+  if (rules.length > 0 && !compositeRouteRulesSupported.value) {
+    appStore.showError(
+      t("admin.groups.compositeRoutes.rules.errors.endpointUnsupported"),
+    );
+    return;
+  }
+  if (!compositeRouteRulesValid(rules)) {
+    compositeRouteRulesShowValidation.value = true;
+    appStore.showError(
+      rules.length > MAX_COMPOSITE_ROUTE_RULES
+        ? t("admin.groups.compositeRoutes.rules.errors.tooMany", {
+            max: MAX_COMPOSITE_ROUTE_RULES,
+          })
+        : t("admin.groups.compositeRoutes.rules.errors.invalid"),
+    );
     return;
   }
   compositeRouteSaving.value = true;
@@ -6761,18 +6932,51 @@ const deleteCompositeRoute = async (route: CompositeModelRoute) => {
   }
 };
 
+const buildCompositePreviewRequest = (): CompositeRoutePreviewRequest | null => {
+  const request: CompositeRoutePreviewRequest = {
+    model: compositePreviewModel.value.trim(),
+    endpoint: compositePreviewEndpoint.value,
+  };
+  compositePreviewBodyError.value = "";
+  const rawBody = compositePreviewBody.value.trim();
+  if (rawBody) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(rawBody);
+    } catch (error) {
+      compositePreviewBodyError.value = t(
+        "admin.groups.compositeRoutes.invalidJson",
+        { message: error instanceof Error ? error.message : String(error) },
+      );
+      return null;
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      compositePreviewBodyError.value = t(
+        "admin.groups.compositeRoutes.bodyMustBeObject",
+      );
+      return null;
+    }
+    request.body = parsed as Record<string, unknown>;
+  }
+  const userAgent = compositePreviewUserAgent.value.trim();
+  if (userAgent) request.user_agent = userAgent;
+  return request;
+};
+
 const previewCompositeRoute = async () => {
   if (!compositeRoutesGroup.value || !compositePreviewModel.value.trim()) {
+    return;
+  }
+  const request = buildCompositePreviewRequest();
+  if (!request) {
+    compositePreviewSampleOpen.value = true;
     return;
   }
   compositePreviewLoading.value = true;
   try {
     compositePreviewDecision.value = await adminAPI.groups.previewCompositeRoute(
       compositeRoutesGroup.value.id,
-      {
-        model: compositePreviewModel.value.trim(),
-        endpoint: compositePreviewEndpoint.value,
-      },
+      request,
     );
   } catch (error: any) {
     appStore.showError(

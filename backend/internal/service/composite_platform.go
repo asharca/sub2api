@@ -2,7 +2,9 @@ package service
 
 import (
 	"context"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
@@ -231,6 +233,71 @@ func (s *GatewayService) resolveCompositeRouteDecision(ctx context.Context, grou
 		return decision, false, err
 	}
 	return decision, decision.Matched, nil
+}
+
+// compositeTargetAvailabilityTTL bounds how stale a smart-rule availability
+// answer may be; it keeps the check off the per-request hot path.
+const compositeTargetAvailabilityTTL = 5 * time.Second
+
+// compositeTargetAvailable reports whether groupID has a currently schedulable
+// account on platform that supports model. Smart rules use it to skip targets
+// that cannot serve right now.
+func (s *GatewayService) compositeTargetAvailable(ctx context.Context, groupID int64, platform, model string) (bool, error) {
+	if s == nil || groupID <= 0 || (s.schedulerSnapshot == nil && s.accountRepo == nil) {
+		return true, nil
+	}
+	cacheKey := strconv.FormatInt(groupID, 10) + "|" + platform + "|" + model
+	if s.compositeAvailability != nil {
+		if cached, found := s.compositeAvailability.Get(cacheKey); found {
+			if available, ok := cached.(bool); ok {
+				return available, nil
+			}
+		}
+	}
+	accounts, useMixed, err := s.listSchedulableAccounts(ctx, &groupID, platform, false)
+	if err != nil {
+		return false, err
+	}
+	available := false
+	for i := range accounts {
+		account := &accounts[i]
+		if s.isAccountAllowedForPlatform(account, platform, useMixed) &&
+			s.isAccountSchedulableForModelSelection(ctx, account, model) &&
+			s.isModelSupportedByAccountInGroup(ctx, account, &groupID, model) {
+			available = true
+			break
+		}
+	}
+	if s.compositeAvailability != nil {
+		s.compositeAvailability.Set(cacheKey, available, compositeTargetAvailabilityTTL)
+	}
+	return available, nil
+}
+
+// compositeModelMappingChain leads a usage mapping chain with the composite
+// public model when a composite route sent a different model upstream, e.g.
+// "auto→claude-sonnet-4-6", so smart-routing results show in usage records.
+func compositeModelMappingChain(ctx context.Context, chain string) string {
+	chain = strings.TrimSpace(chain)
+	publicModel, ok := RequestedPublicModelFromContext(ctx)
+	if !ok {
+		return chain
+	}
+	upstreamModel, ok := ResolvedUpstreamModelFromContext(ctx)
+	if !ok || upstreamModel == publicModel {
+		return chain
+	}
+	publicPrefix := publicModel + "→"
+	if chain == "" {
+		return publicPrefix + upstreamModel
+	}
+	// Handlers build chains from the client's public model; keep that head
+	// and make sure the routed upstream model follows it.
+	rest := strings.TrimPrefix(chain, publicPrefix)
+	if rest == upstreamModel || strings.HasPrefix(rest, upstreamModel+"→") {
+		return publicPrefix + rest
+	}
+	return publicPrefix + upstreamModel + "→" + rest
 }
 
 func isConcreteRequestPlatform(platform string) bool {

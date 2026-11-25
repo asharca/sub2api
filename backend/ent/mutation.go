@@ -19955,27 +19955,30 @@ func (m *ChannelMonitorRequestTemplateMutation) ResetEdge(name string) error {
 // CompositeModelRouteMutation represents an operation that mutates the CompositeModelRoute nodes in the graph.
 type CompositeModelRouteMutation struct {
 	config
-	op              Op
-	typ             string
-	id              *int64
-	created_at      *time.Time
-	updated_at      *time.Time
-	deleted_at      *time.Time
-	public_model    *string
-	match_type      *string
-	target_platform *string
-	upstream_model  *string
-	endpoint        *string
-	priority        *int
-	addpriority     *int
-	enabled         *bool
-	notes           *string
-	clearedFields   map[string]struct{}
-	group           *int64
-	clearedgroup    bool
-	done            bool
-	oldValue        func(context.Context) (*CompositeModelRoute, error)
-	predicates      []predicate.CompositeModelRoute
+	op               Op
+	typ              string
+	id               *int64
+	created_at       *time.Time
+	updated_at       *time.Time
+	deleted_at       *time.Time
+	public_model     *string
+	match_type       *string
+	target_platform  *string
+	upstream_model   *string
+	endpoint         *string
+	priority         *int
+	addpriority      *int
+	enabled          *bool
+	notes            *string
+	rules            *[]domain.CompositeRouteRule
+	appendrules      []domain.CompositeRouteRule
+	session_affinity *bool
+	clearedFields    map[string]struct{}
+	group            *int64
+	clearedgroup     bool
+	done             bool
+	oldValue         func(context.Context) (*CompositeModelRoute, error)
+	predicates       []predicate.CompositeModelRoute
 }
 
 var _ ent.Mutation = (*CompositeModelRouteMutation)(nil)
@@ -20554,6 +20557,93 @@ func (m *CompositeModelRouteMutation) ResetNotes() {
 	delete(m.clearedFields, compositemodelroute.FieldNotes)
 }
 
+// SetRules sets the "rules" field.
+func (m *CompositeModelRouteMutation) SetRules(drr []domain.CompositeRouteRule) {
+	m.rules = &drr
+	m.appendrules = nil
+}
+
+// Rules returns the value of the "rules" field in the mutation.
+func (m *CompositeModelRouteMutation) Rules() (r []domain.CompositeRouteRule, exists bool) {
+	v := m.rules
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldRules returns the old "rules" field's value of the CompositeModelRoute entity.
+// If the CompositeModelRoute object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *CompositeModelRouteMutation) OldRules(ctx context.Context) (v []domain.CompositeRouteRule, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldRules is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldRules requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldRules: %w", err)
+	}
+	return oldValue.Rules, nil
+}
+
+// AppendRules adds drr to the "rules" field.
+func (m *CompositeModelRouteMutation) AppendRules(drr []domain.CompositeRouteRule) {
+	m.appendrules = append(m.appendrules, drr...)
+}
+
+// AppendedRules returns the list of values that were appended to the "rules" field in this mutation.
+func (m *CompositeModelRouteMutation) AppendedRules() ([]domain.CompositeRouteRule, bool) {
+	if len(m.appendrules) == 0 {
+		return nil, false
+	}
+	return m.appendrules, true
+}
+
+// ResetRules resets all changes to the "rules" field.
+func (m *CompositeModelRouteMutation) ResetRules() {
+	m.rules = nil
+	m.appendrules = nil
+}
+
+// SetSessionAffinity sets the "session_affinity" field.
+func (m *CompositeModelRouteMutation) SetSessionAffinity(b bool) {
+	m.session_affinity = &b
+}
+
+// SessionAffinity returns the value of the "session_affinity" field in the mutation.
+func (m *CompositeModelRouteMutation) SessionAffinity() (r bool, exists bool) {
+	v := m.session_affinity
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSessionAffinity returns the old "session_affinity" field's value of the CompositeModelRoute entity.
+// If the CompositeModelRoute object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *CompositeModelRouteMutation) OldSessionAffinity(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSessionAffinity is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSessionAffinity requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSessionAffinity: %w", err)
+	}
+	return oldValue.SessionAffinity, nil
+}
+
+// ResetSessionAffinity resets all changes to the "session_affinity" field.
+func (m *CompositeModelRouteMutation) ResetSessionAffinity() {
+	m.session_affinity = nil
+}
+
 // ClearGroup clears the "group" edge to the Group entity.
 func (m *CompositeModelRouteMutation) ClearGroup() {
 	m.clearedgroup = true
@@ -20615,7 +20705,7 @@ func (m *CompositeModelRouteMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *CompositeModelRouteMutation) Fields() []string {
-	fields := make([]string, 0, 12)
+	fields := make([]string, 0, 14)
 	if m.created_at != nil {
 		fields = append(fields, compositemodelroute.FieldCreatedAt)
 	}
@@ -20652,6 +20742,12 @@ func (m *CompositeModelRouteMutation) Fields() []string {
 	if m.notes != nil {
 		fields = append(fields, compositemodelroute.FieldNotes)
 	}
+	if m.rules != nil {
+		fields = append(fields, compositemodelroute.FieldRules)
+	}
+	if m.session_affinity != nil {
+		fields = append(fields, compositemodelroute.FieldSessionAffinity)
+	}
 	return fields
 }
 
@@ -20684,6 +20780,10 @@ func (m *CompositeModelRouteMutation) Field(name string) (ent.Value, bool) {
 		return m.Enabled()
 	case compositemodelroute.FieldNotes:
 		return m.Notes()
+	case compositemodelroute.FieldRules:
+		return m.Rules()
+	case compositemodelroute.FieldSessionAffinity:
+		return m.SessionAffinity()
 	}
 	return nil, false
 }
@@ -20717,6 +20817,10 @@ func (m *CompositeModelRouteMutation) OldField(ctx context.Context, name string)
 		return m.OldEnabled(ctx)
 	case compositemodelroute.FieldNotes:
 		return m.OldNotes(ctx)
+	case compositemodelroute.FieldRules:
+		return m.OldRules(ctx)
+	case compositemodelroute.FieldSessionAffinity:
+		return m.OldSessionAffinity(ctx)
 	}
 	return nil, fmt.Errorf("unknown CompositeModelRoute field %s", name)
 }
@@ -20809,6 +20913,20 @@ func (m *CompositeModelRouteMutation) SetField(name string, value ent.Value) err
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetNotes(v)
+		return nil
+	case compositemodelroute.FieldRules:
+		v, ok := value.([]domain.CompositeRouteRule)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetRules(v)
+		return nil
+	case compositemodelroute.FieldSessionAffinity:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSessionAffinity(v)
 		return nil
 	}
 	return fmt.Errorf("unknown CompositeModelRoute field %s", name)
@@ -20924,6 +21042,12 @@ func (m *CompositeModelRouteMutation) ResetField(name string) error {
 		return nil
 	case compositemodelroute.FieldNotes:
 		m.ResetNotes()
+		return nil
+	case compositemodelroute.FieldRules:
+		m.ResetRules()
+		return nil
+	case compositemodelroute.FieldSessionAffinity:
+		m.ResetSessionAffinity()
 		return nil
 	}
 	return fmt.Errorf("unknown CompositeModelRoute field %s", name)

@@ -115,6 +115,11 @@ func Notes(v string) predicate.CompositeModelRoute {
 	return predicate.CompositeModelRoute(sql.FieldEQ(FieldNotes, v))
 }
 
+// SessionAffinity applies equality check predicate on the "session_affinity" field. It's identical to SessionAffinityEQ.
+func SessionAffinity(v bool) predicate.CompositeModelRoute {
+	return predicate.CompositeModelRoute(sql.FieldEQ(FieldSessionAffinity, v))
+}
+
 // CreatedAtEQ applies the EQ predicate on the "created_at" field.
 func CreatedAtEQ(v time.Time) predicate.CompositeModelRoute {
 	return predicate.CompositeModelRoute(sql.FieldEQ(FieldCreatedAt, v))
@@ -713,6 +718,16 @@ func NotesEqualFold(v string) predicate.CompositeModelRoute {
 // NotesContainsFold applies the ContainsFold predicate on the "notes" field.
 func NotesContainsFold(v string) predicate.CompositeModelRoute {
 	return predicate.CompositeModelRoute(sql.FieldContainsFold(FieldNotes, v))
+}
+
+// SessionAffinityEQ applies the EQ predicate on the "session_affinity" field.
+func SessionAffinityEQ(v bool) predicate.CompositeModelRoute {
+	return predicate.CompositeModelRoute(sql.FieldEQ(FieldSessionAffinity, v))
+}
+
+// SessionAffinityNEQ applies the NEQ predicate on the "session_affinity" field.
+func SessionAffinityNEQ(v bool) predicate.CompositeModelRoute {
+	return predicate.CompositeModelRoute(sql.FieldNEQ(FieldSessionAffinity, v))
 }
 
 // HasGroup applies the HasEdge predicate on the "group" edge.

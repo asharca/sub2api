@@ -8,6 +8,7 @@ import (
 	"entgo.io/ent"
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 )
 
 const (
@@ -39,6 +40,10 @@ const (
 	FieldEnabled = "enabled"
 	// FieldNotes holds the string denoting the notes field in the database.
 	FieldNotes = "notes"
+	// FieldRules holds the string denoting the rules field in the database.
+	FieldRules = "rules"
+	// FieldSessionAffinity holds the string denoting the session_affinity field in the database.
+	FieldSessionAffinity = "session_affinity"
 	// EdgeGroup holds the string denoting the group edge name in mutations.
 	EdgeGroup = "group"
 	// Table holds the table name of the compositemodelroute in the database.
@@ -67,6 +72,8 @@ var Columns = []string{
 	FieldPriority,
 	FieldEnabled,
 	FieldNotes,
+	FieldRules,
+	FieldSessionAffinity,
 }
 
 // ValidColumn reports if the column name is valid (part of the table columns).
@@ -115,6 +122,10 @@ var (
 	DefaultPriority int
 	// DefaultEnabled holds the default value on creation for the "enabled" field.
 	DefaultEnabled bool
+	// DefaultRules holds the default value on creation for the "rules" field.
+	DefaultRules []domain.CompositeRouteRule
+	// DefaultSessionAffinity holds the default value on creation for the "session_affinity" field.
+	DefaultSessionAffinity bool
 )
 
 // OrderOption defines the ordering options for the CompositeModelRoute queries.
@@ -183,6 +194,11 @@ func ByEnabled(opts ...sql.OrderTermOption) OrderOption {
 // ByNotes orders the results by the notes field.
 func ByNotes(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldNotes, opts...).ToFunc()
+}
+
+// BySessionAffinity orders the results by the session_affinity field.
+func BySessionAffinity(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldSessionAffinity, opts...).ToFunc()
 }
 
 // ByGroupField orders the results by group field.
