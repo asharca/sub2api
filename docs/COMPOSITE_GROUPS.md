@@ -114,6 +114,11 @@ candidate is available the first candidate is used, so the request fails with
 the normal no-available-account error instead of silently changing provider.
 Availability answers are cached in-process for a few seconds.
 
+Because unavailable targets fall through to later rules, a rule that targets a
+text-only model should set `has_images: false`; otherwise an image request can
+fall through to it when the vision target has no available account. Use the
+preview to check what a request falls back to.
+
 ### Session Affinity
 
 With `session_affinity` enabled, the gateway remembers the chosen target per
@@ -168,7 +173,7 @@ their default target with no `features` or `trace`.
 | --- | --- | --- | --- | --- |
 | 0 | `vision` | `has_images: true` | `gemini` | `gemini-2.5-pro` |
 | 1 | `long-context` | `min_input_tokens: 150000` | `gemini` | `gemini-2.5-pro` |
-| 2 | `translate` | `keywords: ["翻译", "translate"]` | `deepseek` | `deepseek-chat` |
+| 2 | `translate` | `keywords: ["翻译", "translate"]`, `has_images: false` | `deepseek` | `deepseek-chat` |
 | route | default | none | `anthropic` | `claude-sonnet-4-6` |
 
 ```json
@@ -182,7 +187,7 @@ their default target with no `features` or `trace`.
   "rules": [
     {"name": "vision", "enabled": true, "target_platform": "gemini", "upstream_model": "gemini-2.5-pro", "conditions": {"has_images": true}},
     {"name": "long-context", "enabled": true, "target_platform": "gemini", "upstream_model": "gemini-2.5-pro", "conditions": {"min_input_tokens": 150000}},
-    {"name": "translate", "enabled": true, "target_platform": "deepseek", "upstream_model": "deepseek-chat", "conditions": {"keywords": ["翻译", "translate"]}}
+    {"name": "translate", "enabled": true, "target_platform": "deepseek", "upstream_model": "deepseek-chat", "conditions": {"keywords": ["翻译", "translate"], "has_images": false}}
   ]
 }
 ```
