@@ -103,7 +103,7 @@ var (
 
 		-- 检查是否达到并发上限
 		local count = redis.call('ZCARD', key) + redis.call('ZCARD', liveKey)
-		if maxConcurrency <= 0 or count < maxConcurrency then
+		if count < maxConcurrency or (ARGV[4] == 'user' and maxConcurrency <= 0) then
 			redis.call('ZADD', key, now, requestID)
 			redis.call('EXPIRE', key, ttl)
 			return {1, now}
@@ -909,7 +909,7 @@ func (c *concurrencyCache) GetAccountConcurrencyBatch(ctx context.Context, accou
 func (c *concurrencyCache) AcquireUserSlot(ctx context.Context, userID int64, maxConcurrency int, requestID string) (bool, error) {
 	key := userSlotKey(userID)
 	// 时间戳在 Lua 脚本内使用 Redis TIME 命令获取，确保多实例时钟一致
-	result, now, err := runScriptInt64Pair(ctx, c.rdb, acquireScript, []string{key, liveUserSlotKey(userID)}, maxConcurrency, c.slotTTLSeconds, requestID)
+	result, now, err := runScriptInt64Pair(ctx, c.rdb, acquireScript, []string{key, liveUserSlotKey(userID)}, maxConcurrency, c.slotTTLSeconds, requestID, "user")
 	if err != nil {
 		return false, err
 	}
