@@ -54,7 +54,7 @@ func newInitialAdmissionHandler(t *testing.T, repo *initialAdmissionRepo, upstre
 		})
 	}
 	cfg := &config.Config{RunMode: config.RunModeSimple}
-	repo.slots = &helperConcurrencyCacheStub{accountSeq: []bool{true, true, true}}
+	repo.slots = &helperConcurrencyCacheStub{userSeq: []bool{true}, accountSeq: []bool{true, true, true}}
 	concurrency := service.NewConcurrencyService(repo.slots)
 	gw := service.NewOpenAIGatewayService(repo, nil, nil, nil, nil, nil, nil, nil, cfg,
 		nil, concurrency, nil, nil, nil, upstream, nil, nil, nil, nil, nil, nil, nil, nil)
