@@ -389,8 +389,8 @@ func (s *ConcurrencyService) AcquireAccountSlot(ctx context.Context, accountID i
 // If the user is at max concurrency, it waits until a slot is available or timeout.
 // Returns a release function that MUST be called when the request completes.
 func (s *ConcurrencyService) AcquireUserSlot(ctx context.Context, userID int64, maxConcurrency int) (*AcquireResult, error) {
-	// If maxConcurrency is 0 or negative, no limit
-	if maxConcurrency <= 0 {
+	// Unlimited admission remains available if statistics storage is unavailable.
+	if maxConcurrency <= 0 && s.cache == nil {
 		return &AcquireResult{
 			Acquired:    true,
 			ReleaseFunc: func() {}, // no-op
@@ -401,6 +401,10 @@ func (s *ConcurrencyService) AcquireUserSlot(ctx context.Context, userID int64, 
 	requestID := generateRequestID()
 
 	acquired, err := s.cache.AcquireUserSlot(ctx, userID, maxConcurrency, requestID)
+	if err != nil && maxConcurrency <= 0 {
+		logger.LegacyPrintf("service.concurrency", "Warning: failed to track unlimited user %d: %v", userID, err)
+		return &AcquireResult{Acquired: true, ReleaseFunc: func() {}}, nil
+	}
 	if err != nil {
 		return nil, err
 	}

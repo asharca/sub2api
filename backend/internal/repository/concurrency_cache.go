@@ -103,7 +103,7 @@ var (
 
 		-- 检查是否达到并发上限
 		local count = redis.call('ZCARD', key) + redis.call('ZCARD', liveKey)
-		if count < maxConcurrency then
+		if maxConcurrency <= 0 or count < maxConcurrency then
 			redis.call('ZADD', key, now, requestID)
 			redis.call('EXPIRE', key, ttl)
 			return {1, now}
@@ -282,7 +282,7 @@ var (
 		if accountMax > 0 then
 			redis.call('ZREM', accountRegular, accountSource)
 		end
-		if userMax > 0 then
+		if userSource ~= '' then
 			redis.call('ZREM', userRegular, userSource)
 		end
 		-- A stats-only key member is moved as well, so the unlimited tracking
